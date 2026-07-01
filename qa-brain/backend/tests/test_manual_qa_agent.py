@@ -77,3 +77,56 @@ async def test_generate_test_cases_all_have_required_fields():
         assert "steps" in tc
         assert "expected_result" in tc
         assert "priority" in tc
+
+
+MOCK_SPRINT_STORIES = [
+    {"jira_id": "PROJ-121", "title": "User login", "description": "...", "acceptance_criteria": "..."},
+    {"jira_id": "PROJ-122", "title": "User logout", "description": "...", "acceptance_criteria": "..."},
+]
+
+MOCK_TRACEABILITY = {
+    "PROJ-121": ["Successful login", "Login with wrong password", "SQL injection in email"],
+    "PROJ-122": ["Successful logout", "Session cleared after logout"],
+}
+
+MOCK_SCORE = {
+    "score": 72,
+    "recommendation": "conditional",
+    "findings": [
+        "PROJ-121 has 3 test cases — acceptable",
+        "PROJ-122 missing security test cases",
+        "No E2E test cases across sprint",
+    ],
+}
+
+
+@pytest.mark.asyncio
+async def test_build_traceability_map_keys_match_story_ids():
+    agent = ManualQAAgent()
+    with patch.object(agent._jira, "get_story", new_callable=AsyncMock, side_effect=[
+        MOCK_SPRINT_STORIES[0], MOCK_SPRINT_STORIES[1]
+    ]), patch.object(agent._client.messages, "create") as mock_create:
+        mock_create.return_value = MagicMock(
+            content=[MagicMock(text=json.dumps(MOCK_TRACEABILITY))]
+        )
+        result = await agent.build_traceability_map(["PROJ-121", "PROJ-122"])
+
+    assert "PROJ-121" in result
+    assert "PROJ-122" in result
+    assert isinstance(result["PROJ-121"], list)
+
+
+@pytest.mark.asyncio
+async def test_score_release_readiness_returns_score_and_recommendation():
+    agent = ManualQAAgent()
+    with patch.object(agent._jira, "get_sprint_stories", new_callable=AsyncMock, return_value=MOCK_SPRINT_STORIES), \
+         patch.object(agent, "generate_test_cases", new_callable=AsyncMock, return_value=MOCK_TEST_CASES), \
+         patch.object(agent._client.messages, "create") as mock_create:
+        mock_create.return_value = MagicMock(
+            content=[MagicMock(text=json.dumps(MOCK_SCORE))]
+        )
+        result = await agent.score_release_readiness("SPRINT-42")
+
+    assert 0 <= result["score"] <= 100
+    assert result["recommendation"] in ("go", "no_go", "conditional")
+    assert isinstance(result["findings"], list)
