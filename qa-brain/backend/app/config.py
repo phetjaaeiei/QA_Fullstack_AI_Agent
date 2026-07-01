@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     jwt_expire_hours: int = 8
     environment: str = "development"
     frontend_url: str = "http://localhost:5173"
+    mock_mode: bool = False
 
     class Config:
         env_file = ".env"

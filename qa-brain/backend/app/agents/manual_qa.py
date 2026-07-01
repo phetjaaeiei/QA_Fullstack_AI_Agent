@@ -13,6 +13,78 @@ def _parse_json(text: str):
     return json.loads(text.strip())
 
 
+def _mock_test_cases(story_id: str, title: str = "") -> list[dict]:
+    label = f"{story_id} ({title})" if title else story_id
+    return [
+        {
+            "title": f"[MOCK] Successful action for {label}",
+            "type": "functional",
+            "steps": ["Step 1: Navigate to the feature", "Step 2: Perform the primary action", "Step 3: Verify the result"],
+            "expected_result": "Action completes successfully and the expected state is shown",
+            "priority": "high",
+        },
+        {
+            "title": f"[MOCK] Reject invalid input for {label}",
+            "type": "negative",
+            "steps": ["Step 1: Submit the form with invalid data", "Step 2: Observe the response"],
+            "expected_result": "Validation error is shown, no data is persisted",
+            "priority": "high",
+        },
+        {
+            "title": f"[MOCK] Boundary value handling for {label}",
+            "type": "edge",
+            "steps": ["Step 1: Submit input at the maximum allowed length", "Step 2: Submit input at the minimum allowed length"],
+            "expected_result": "Both boundary values are accepted without error",
+            "priority": "medium",
+        },
+        {
+            "title": f"[MOCK] SQL injection attempt for {label}",
+            "type": "security",
+            "steps": ["Step 1: Enter `' OR 1=1 --` into a text field", "Step 2: Submit the form"],
+            "expected_result": "Input is sanitized, no SQL error is exposed, request is rejected",
+            "priority": "high",
+        },
+        {
+            "title": f"[MOCK] End-to-end user journey for {label}",
+            "type": "e2e",
+            "steps": ["Step 1: Log in", "Step 2: Complete the full workflow described in the story", "Step 3: Confirm the final state"],
+            "expected_result": "User completes the journey with the expected outcome at every step",
+            "priority": "medium",
+        },
+    ]
+
+
+def _mock_analysis(story_id: str, title: str = "") -> dict:
+    label = f"{story_id} ({title})" if title else story_id
+    return {
+        "ambiguities": [f"[MOCK] Unclear what happens on {label} when input is empty"],
+        "missing_requirements": [f"[MOCK] No mention of error handling for {label}"],
+        "risk_areas": [f"[MOCK] Data validation and authorization for {label}"],
+    }
+
+
+def _mock_traceability(story_titles: dict) -> dict:
+    return {
+        sid: [f"[MOCK] Test case covering {sid} ({title})" if title else f"[MOCK] Test case covering {sid}"]
+        for sid, title in story_titles.items()
+    }
+
+
+def _mock_gaps() -> dict:
+    return {
+        "gaps": ["[MOCK] No dedicated security test cases found", "[MOCK] No E2E coverage across the sprint"],
+        "recommendations": ["[MOCK] Add SQL injection and auth-bypass test cases", "[MOCK] Add at least one full E2E scenario"],
+    }
+
+
+def _mock_score(sprint_id: str) -> dict:
+    return {
+        "score": 72,
+        "recommendation": "conditional",
+        "findings": [f"[MOCK] {sprint_id} has partial security coverage", "[MOCK] No E2E test cases found"],
+    }
+
+
 SYSTEM_PROMPT = """You are an expert Manual QA Engineer with 10+ years of experience in test design.
 
 Your expertise:
@@ -35,8 +107,20 @@ class ManualQAAgent:
         self._jira = JiraClient()
         self._openapi = OpenAPIClient()
         self._model = "claude-sonnet-4-6"
+        self._mock = settings.mock_mode
+
+    async def _fetch_story_title(self, story_id: str) -> str:
+        try:
+            story = await self._jira.get_story(story_id)
+            return story.get("title", "")
+        except Exception:
+            return ""
 
     async def analyze_story(self, story_id: str) -> dict:
+        if self._mock:
+            title = await self._fetch_story_title(story_id)
+            return _mock_analysis(story_id, title)
+
         story = await self._jira.get_story(story_id)
 
         response = await self._client.messages.create(
@@ -64,6 +148,10 @@ Return JSON only:
         return _parse_json(response.content[0].text)
 
     async def generate_test_cases(self, story_id: str, source: str = "jira") -> list[dict]:
+        if self._mock:
+            title = await self._fetch_story_title(story_id)
+            return _mock_test_cases(story_id, title)
+
         story = await self._jira.get_story(story_id)
 
         response = await self._client.messages.create(
@@ -102,6 +190,15 @@ REQUIRED coverage — you must include at least one of each type:
         return _parse_json(response.content[0].text)
 
     async def suggest_security_cases(self, test_cases: list[dict]) -> list[dict]:
+        if self._mock:
+            return [{
+                "title": "[MOCK] IDOR check on another user's resource",
+                "type": "security",
+                "steps": ["Step 1: Access another user's resource by ID", "Step 2: Observe the response"],
+                "expected_result": "Access is denied with 403",
+                "priority": "high",
+            }]
+
         response = await self._client.messages.create(
             model=self._model,
             max_tokens=3000,
@@ -128,6 +225,10 @@ Return JSON array of NEW security test cases only (don't repeat existing ones):
         return _parse_json(response.content[0].text)
 
     async def build_traceability_map(self, story_ids: list[str]) -> dict:
+        if self._mock:
+            titles = {sid: await self._fetch_story_title(sid) for sid in story_ids}
+            return _mock_traceability(titles)
+
         stories = []
         for story_id in story_ids:
             story = await self._jira.get_story(story_id)
@@ -159,6 +260,9 @@ Return JSON where keys are story IDs:
         return _parse_json(response.content[0].text)
 
     async def detect_coverage_gaps(self, sprint_id: str) -> dict:
+        if self._mock:
+            return _mock_gaps()
+
         stories = await self._jira.get_sprint_stories(sprint_id)
         story_summaries = "\n".join([f"- {s['jira_id']}: {s['title']}" for s in stories])
 
@@ -184,6 +288,9 @@ Return JSON:
         return _parse_json(response.content[0].text)
 
     async def score_release_readiness(self, sprint_id: str) -> dict:
+        if self._mock:
+            return _mock_score(sprint_id)
+
         stories = await self._jira.get_sprint_stories(sprint_id)
         all_test_cases = []
         for story in stories:
