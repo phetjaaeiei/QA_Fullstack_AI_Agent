@@ -173,3 +173,66 @@ Return JSON only:
         )
 
         return _parse_json(response.content[0].text)
+
+    async def classify_failure(self, repo: str, run_id: str) -> dict:
+        if self._mock:
+            return {
+                "root_cause": "Script",
+                "explanation": f"[MOCK] Locator timeout in CI run {run_id} — likely a stale selector, not a product bug",
+                "failed_step": "[MOCK] Click submit button",
+            }
+
+        run_data = await self._github.get_test_results(repo, run_id)
+
+        response = await self._client.messages.create(
+            model=self._model,
+            max_tokens=1500,
+            system=SYSTEM_PROMPT,
+            messages=[{
+                "role": "user",
+                "content": f"""Classify the root cause of this CI test failure.
+
+CI run data:
+{json.dumps(run_data, indent=2)}
+
+Return JSON only:
+{{
+  "root_cause": "Bug|Data|Env|Script",
+  "explanation": "why you classified it this way",
+  "failed_step": "the specific step that failed"
+}}"""
+            }]
+        )
+
+        return _parse_json(response.content[0].text)
+
+    async def auto_fix_script(self, script_content: str, error_message: str) -> dict:
+        if self._mock:
+            return {
+                "content": f"// [MOCK] auto-fixed\n{script_content}",
+                "explanation": "[MOCK] Replaced the brittle locator with a role-based selector",
+            }
+
+        response = await self._client.messages.create(
+            model=self._model,
+            max_tokens=4000,
+            system=SYSTEM_PROMPT,
+            messages=[{
+                "role": "user",
+                "content": f"""This script failed with the error below. Fix it.
+
+Script:
+{script_content}
+
+Error:
+{error_message}
+
+Return JSON only:
+{{
+  "content": "the fixed script source code, using \\n for newlines",
+  "explanation": "what was wrong and how you fixed it"
+}}"""
+            }]
+        )
+
+        return _parse_json(response.content[0].text)

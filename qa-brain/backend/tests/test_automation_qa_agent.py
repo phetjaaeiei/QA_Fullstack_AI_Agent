@@ -79,3 +79,47 @@ async def test_suggest_self_healing_returns_alternatives():
 
     assert result["alternatives"] == ["getByTestId('submit-1')"]
     assert "strategy" in result
+
+
+MOCK_CI_RUN = {
+    "run_id": "123456",
+    "status": "completed",
+    "conclusion": "failure",
+    "html_url": "https://github.com/acme/repo/actions/runs/123456",
+    "jobs": [{"name": "e2e-tests", "conclusion": "failure", "steps": []}],
+}
+
+
+@pytest.mark.asyncio
+async def test_classify_failure_returns_root_cause():
+    with patch("app.agents.automation_qa.settings.mock_mode", False):
+        agent = AutomationQAAgent()
+        with patch.object(agent._github, "get_test_results", new_callable=AsyncMock, return_value=MOCK_CI_RUN), \
+             patch.object(agent._client.messages, "create", new_callable=AsyncMock) as mock_create:
+            mock_create.return_value = MagicMock(
+                content=[MagicMock(text=json.dumps({
+                    "root_cause": "Script",
+                    "explanation": "stale locator",
+                    "failed_step": "click submit",
+                }))]
+            )
+            result = await agent.classify_failure("acme/repo", "123456")
+
+    assert result["root_cause"] == "Script"
+
+
+@pytest.mark.asyncio
+async def test_auto_fix_script_returns_fixed_content():
+    with patch("app.agents.automation_qa.settings.mock_mode", False):
+        agent = AutomationQAAgent()
+        with patch.object(agent._client.messages, "create", new_callable=AsyncMock) as mock_create:
+            mock_create.return_value = MagicMock(
+                content=[MagicMock(text=json.dumps({
+                    "content": "fixed script",
+                    "explanation": "replaced brittle locator",
+                }))]
+            )
+            result = await agent.auto_fix_script("broken script", "TimeoutError: locator not found")
+
+    assert result["content"] == "fixed script"
+    assert "explanation" in result
