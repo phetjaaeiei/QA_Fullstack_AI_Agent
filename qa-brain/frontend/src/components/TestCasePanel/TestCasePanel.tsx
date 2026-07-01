@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { TestCase } from "../../lib/types";
+import type { TestCase, ReleaseScore } from "../../lib/types";
 
 const TYPE_COLORS: Record<string, string> = {
   functional: "bg-blue-100 text-blue-700",
@@ -18,7 +18,7 @@ const PRIORITY_COLORS: Record<string, string> = {
 
 interface TestCasePanelProps {
   testCases: TestCase[];
-  releaseScore: { score: number; recommendation: string; findings: string[] } | null;
+  releaseScore: ReleaseScore | null;
 }
 
 export function TestCasePanel({ testCases, releaseScore }: TestCasePanelProps) {
@@ -43,7 +43,7 @@ export function TestCasePanel({ testCases, releaseScore }: TestCasePanelProps) {
             "bg-yellow-50 border border-yellow-200"
           }`}>
             <span className="font-bold">{releaseScore.score}/100</span>
-            <span className="ml-2 capitalize">{releaseScore.recommendation.replace("_", " ")}</span>
+            <span className="ml-2 capitalize">{releaseScore.recommendation.replaceAll("_", " ")}</span>
           </div>
         )}
 
