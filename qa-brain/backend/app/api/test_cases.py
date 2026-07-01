@@ -31,7 +31,7 @@ async def get_story_test_cases(
     story_result = await db.execute(select(Story).where(Story.jira_id == jira_id))
     story = story_result.scalar_one_or_none()
     if not story:
-        return []
+        raise HTTPException(status_code=404, detail=f"Story {jira_id} not found")
 
     result = await db.execute(select(TestCase).where(TestCase.story_id == story.id))
     test_cases = result.scalars().all()
