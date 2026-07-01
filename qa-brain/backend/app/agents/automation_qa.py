@@ -1,0 +1,138 @@
+import json
+import re as _re
+from pathlib import Path
+import httpx
+import anthropic
+from app.config import settings
+from app.mcp_clients.jira_client import JiraClient
+from app.mcp_clients.github_client import GitHubClient
+
+
+def _parse_json(text: str):
+    text = text.strip()
+    text = _re.sub(r"^```(?:json)?\s*", "", text)
+    text = _re.sub(r"\s*```$", "", text)
+    return json.loads(text.strip())
+
+
+_HOUSE_STYLE_PATH = Path(__file__).resolve().parents[2] / "docs" / "automation-standards.md"
+
+
+def _load_house_style(path: Path = _HOUSE_STYLE_PATH) -> str:
+    if path.exists():
+        return path.read_text()
+    return "No house style defined yet — use general Playwright/Robot Framework best practices."
+
+
+SYSTEM_PROMPT = """You are an expert Automation QA Engineer with 10+ years of experience in test automation.
+
+Your expertise:
+- Playwright (TypeScript) and Robot Framework script authoring
+- Page Object Model design and locator strategy
+- CI test failure triage: distinguishing Bug / Data / Env / Script issues
+- Self-healing locator strategies and flaky test diagnosis
+
+Rules:
+- Always return valid JSON only — no markdown, no explanation outside JSON
+- Generated scripts must be syntactically valid for the requested framework
+- Locator suggestions must be specific (prefer role/test-id selectors over brittle CSS/XPath)
+"""
+
+
+def _mock_script(story_id: str, framework: str, title: str = "") -> dict:
+    label = f"{story_id} ({title})" if title else story_id
+    if framework == "robot":
+        content = (
+            "*** Settings ***\n"
+            "Library    SeleniumLibrary\n\n"
+            "*** Test Cases ***\n"
+            f"[MOCK] Verify {label}\n"
+            "    Open Browser    https://example.com    chrome\n"
+            "    Wait Until Element Is Visible    id=main\n"
+            "    Close Browser\n"
+        )
+    else:
+        content = (
+            "import { test, expect } from '@playwright/test';\n\n"
+            f"test('[MOCK] Verify {label}', async ({{ page }}) => {{\n"
+            "  await page.goto('https://example.com');\n"
+            "  await expect(page.getByRole('main')).toBeVisible();\n"
+            "});\n"
+        )
+    return {"framework": framework, "content": content}
+
+
+class AutomationQAAgent:
+    def __init__(self):
+        self._client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+        self._jira = JiraClient()
+        self._github = GitHubClient()
+        self._http = httpx.AsyncClient(timeout=15.0)
+        self._model = "claude-sonnet-4-6"
+        self._mock = settings.mock_mode
+
+    async def _fetch_story_title(self, story_id: str) -> str:
+        try:
+            story = await self._jira.get_story(story_id)
+            return story.get("title", "")
+        except Exception:
+            return ""
+
+    async def generate_script_from_spec(self, story_id: str, framework: str = "playwright") -> dict:
+        if self._mock:
+            title = await self._fetch_story_title(story_id)
+            return _mock_script(story_id, framework, title)
+
+        story = await self._jira.get_story(story_id)
+
+        response = await self._client.messages.create(
+            model=self._model,
+            max_tokens=4000,
+            system=SYSTEM_PROMPT,
+            messages=[{
+                "role": "user",
+                "content": f"""Generate a {framework} test script skeleton for this story.
+
+Story ID: {story['jira_id']}
+Title: {story['title']}
+Description: {story['description']}
+Acceptance Criteria: {story.get('acceptance_criteria') or 'Not provided'}
+
+Return JSON only:
+{{
+  "framework": "{framework}",
+  "content": "the full script source code, using \\n for newlines"
+}}"""
+            }]
+        )
+
+        return _parse_json(response.content[0].text)
+
+    async def apply_company_framework(self, script_content: str) -> dict:
+        if self._mock:
+            return {"content": f"// [MOCK] reformatted to house style\n{script_content}"}
+
+        house_style = _load_house_style()
+
+        response = await self._client.messages.create(
+            model=self._model,
+            max_tokens=4000,
+            system=SYSTEM_PROMPT,
+            messages=[{
+                "role": "user",
+                "content": f"""Reformat this script to follow the house style below. Keep the test logic identical — only change structure, naming, and organization.
+
+House style:
+{house_style}
+
+Script:
+{script_content}
+
+Return JSON only:
+{{
+  "content": "the reformatted script source code, using \\n for newlines"
+}}"""
+            }]
+        )
+
+        return _parse_json(response.content[0].text)
