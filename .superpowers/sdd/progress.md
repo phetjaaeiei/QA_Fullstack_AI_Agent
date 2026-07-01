@@ -13,4 +13,10 @@ Plan: docs/superpowers/plans/2026-07-02-automation-qa-agent-backend.md
 - [x] Task 5: AutomationQAAgent — CI Failure Classification & Auto-Fix (commits 0fb8235..8f82f95, review clean)
 - [x] Task 6: AutomationQAAgent — Test Data Generation & Traceability Mapping (commits 95e0484..3cf7a1a, review clean; class complete, 7/7 tools)
 - [x] Task 7: Orchestrator Routing (commits e62f39b..33528af, review clean; caught+fixed a real plan bug mid-task: failure-intent keyword list didn't match the plan's own test message, added "why did this fail")
-- [ ] Task 8: Persistence & REST API
+- [x] Task 8: Persistence & REST API (commits c2a62fb..bd0f8bc, review clean; minor: new REST test only asserts `framework`, not `health_status`/`content`/`ci_run_url`)
+
+## All 8 tasks complete. Next: final whole-branch review, then superpowers:finishing-a-development-branch.
+
+### Minor findings carried to final review (none blocking)
+- Task 3: one test deviated harmlessly from the brief's literal snippet (used AsyncMock + mock_mode patch instead of the brief's plain Mock — necessary correction, not a defect).
+- Task 8: `test_get_story_scripts_returns_list` doesn't assert `health_status`, `content`, or `ci_run_url` — coverage gap, not a correctness bug (endpoint mirrors the already-tested `test_cases.py` pattern).
