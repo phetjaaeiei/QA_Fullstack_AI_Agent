@@ -22,6 +22,7 @@ MOCK_TEST_CASES = [
     {"title": "Login with incorrect password", "type": "negative", "steps": ["Navigate to /login", "Enter valid email", "Enter wrong password", "Click Login"], "expected_result": "Error message 'Invalid credentials' is shown", "priority": "high"},
     {"title": "SQL injection in email field", "type": "security", "steps": ["Navigate to /login", "Enter `' OR 1=1 --` in email", "Enter any password", "Click Login"], "expected_result": "Login fails, no SQL error exposed", "priority": "high"},
     {"title": "Login with empty fields", "type": "edge", "steps": ["Navigate to /login", "Leave email empty", "Leave password empty", "Click Login"], "expected_result": "Validation errors shown for both fields", "priority": "medium"},
+    {"title": "Full login to dashboard flow", "type": "e2e", "steps": ["Navigate to /login", "Enter valid email", "Enter valid password", "Click Login", "Verify redirect to /dashboard", "Verify user name appears in header"], "expected_result": "User successfully completes login flow and lands on dashboard", "priority": "high"},
 ]
 
 
@@ -51,12 +52,13 @@ async def test_generate_test_cases_covers_all_types():
         )
         result = await agent.generate_test_cases("PROJ-123")
 
-    assert len(result) >= 4
+    assert len(result) >= 5
     types = {tc["type"] for tc in result}
     assert "functional" in types
     assert "negative" in types
     assert "security" in types
     assert "edge" in types
+    assert "e2e" in types
 
 
 @pytest.mark.asyncio
