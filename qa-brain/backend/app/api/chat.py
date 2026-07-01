@@ -9,6 +9,7 @@ from app.database import get_db
 from app.models.project import Project
 from app.models.story import Story
 from app.models.test_case import TestCase
+from app.models.automation_script import AutomationScript
 
 router = APIRouter()
 orchestrator = QAOrchestrator()
@@ -22,11 +23,7 @@ def verify_ws_token(token: str) -> Optional[str]:
         return None
 
 
-async def _persist_test_cases(
-    db: AsyncSession,
-    jira_id: str,
-    test_cases: list,
-) -> None:
+async def _get_or_create_story(db: AsyncSession, jira_id: str) -> Story:
     project_key = jira_id.split("-")[0]
     proj_res = await db.execute(select(Project).where(Project.jira_project_key == project_key))
     project = proj_res.scalar_one_or_none()
@@ -47,6 +44,15 @@ async def _persist_test_cases(
         )
         db.add(story)
         await db.flush()
+    return story
+
+
+async def _persist_test_cases(
+    db: AsyncSession,
+    jira_id: str,
+    test_cases: list,
+) -> None:
+    story = await _get_or_create_story(db, jira_id)
 
     for tc_data in test_cases:
         tc = TestCase(
@@ -60,6 +66,23 @@ async def _persist_test_cases(
             created_by_agent="manual_qa",
         )
         db.add(tc)
+    await db.commit()
+
+
+async def _persist_automation_script(
+    db: AsyncSession,
+    jira_id: str,
+    script: dict,
+) -> None:
+    story = await _get_or_create_story(db, jira_id)
+
+    automation_script = AutomationScript(
+        story_id=story.id,
+        framework=script.get("framework", "playwright"),
+        content=script.get("content", ""),
+        health_status="healthy",
+    )
+    db.add(automation_script)
     await db.commit()
 
 
@@ -93,6 +116,8 @@ async def websocket_chat(
                         ev_data = event.get("data") or {}
                         if ev_data.get("test_cases") and ev_data.get("story_id"):
                             await _persist_test_cases(db, ev_data["story_id"], ev_data["test_cases"])
+                        if ev_data.get("script") and ev_data.get("story_id"):
+                            await _persist_automation_script(db, ev_data["story_id"], ev_data["script"])
                     await websocket.send_json(event)
             except Exception as e:
                 await websocket.send_json({"type": "error", "message": str(e)})
