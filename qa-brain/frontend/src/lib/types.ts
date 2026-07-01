@@ -10,6 +10,16 @@ export interface TestCase {
   created_at: string;
 }
 
+export interface AutomationScript {
+  id: string;
+  story_id: string;
+  framework: "playwright" | "robot";
+  content: string;
+  health_status: "healthy" | "flaky" | "broken";
+  ci_run_url: string | null;
+  created_at: string;
+}
+
 export interface AgentEvent {
   type: "agent_start" | "stream_delta" | "agent_complete" | "orchestrator_done";
   agent?: string;
@@ -23,6 +33,13 @@ export interface AgentEvent {
     gaps?: Record<string, unknown>;
     story_id?: string;
     message?: string;
+    script?: { framework: "playwright" | "robot"; content: string };
+    formatted_script?: { content: string };
+    healing?: { alternatives: string[]; strategy: string };
+    classification?: { root_cause: string; explanation: string; failed_step: string };
+    fix?: { content: string; explanation: string };
+    test_data?: { label: string; value: string }[];
+    traceability_mapping?: { story_id: string; covers_acceptance_criteria: boolean; confidence: string; notes: string };
   };
 }
 
