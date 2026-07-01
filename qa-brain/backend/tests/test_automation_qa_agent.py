@@ -19,13 +19,14 @@ MOCK_SCRIPT = {
 
 @pytest.mark.asyncio
 async def test_generate_script_from_spec_returns_script():
-    agent = AutomationQAAgent()
-    with patch.object(agent._jira, "get_story", new_callable=AsyncMock, return_value=MOCK_STORY), \
-         patch.object(agent._client.messages, "create") as mock_create:
-        mock_create.return_value = MagicMock(
-            content=[MagicMock(text=json.dumps(MOCK_SCRIPT))]
-        )
-        result = await agent.generate_script_from_spec("PROJ-200", framework="playwright")
+    with patch("app.agents.automation_qa.settings.mock_mode", False):
+        agent = AutomationQAAgent()
+        with patch.object(agent._jira, "get_story", new_callable=AsyncMock, return_value=MOCK_STORY), \
+             patch.object(agent._client.messages, "create", new_callable=AsyncMock) as mock_create:
+            mock_create.return_value = MagicMock(
+                content=[MagicMock(text=json.dumps(MOCK_SCRIPT))]
+            )
+            result = await agent.generate_script_from_spec("PROJ-200", framework="playwright")
 
     assert result["framework"] == "playwright"
     assert "content" in result
