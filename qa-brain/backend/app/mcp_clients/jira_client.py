@@ -56,7 +56,7 @@ class JiraClient:
 
     async def search_stories(self, jql: str, max_results: int = 50) -> list:
         response = await self._http.post(
-            "/rest/api/3/search",
+            "/rest/api/3/search/jql",
             json={
                 "jql": jql,
                 "maxResults": max_results,
