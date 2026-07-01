@@ -6,7 +6,7 @@ Plan: docs/superpowers/plans/2026-07-02-automation-qa-agent-backend.md
 
 ## Tasks
 
-- [ ] Task 1: AutomationScript Database Model & Migration
+- [x] Task 1: AutomationScript Database Model & Migration (commits ca6d296..3eecaf9, review clean)
 - [ ] Task 2: GitHub HTTP Client
 - [ ] Task 3: AutomationQAAgent — Script Generation & Standardization
 - [ ] Task 4: AutomationQAAgent — Self-Healing Locators
