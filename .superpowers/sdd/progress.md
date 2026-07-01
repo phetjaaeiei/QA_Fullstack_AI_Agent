@@ -53,7 +53,7 @@ verifies via `npm run build`.
 
 ## Tasks
 
-- [ ] Task 1: Types & API Client for Automation Scripts
+- [x] Task 1: Types & API Client for Automation Scripts (commits 178b462..ca565e9, review clean)
 - [ ] Task 2: Chat Feedback for Automation Actions
 - [ ] Task 3: ScriptsPanel Component
 - [ ] Task 4: Wire ScriptsPanel into Dashboard
