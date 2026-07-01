@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_hours: int = 8
     environment: str = "development"
+    frontend_url: str = "http://localhost:5173"
 
     class Config:
         env_file = ".env"

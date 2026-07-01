@@ -30,7 +30,7 @@ MOCK_TEST_CASES = [
 async def test_analyze_story_returns_structured_analysis():
     agent = ManualQAAgent()
     with patch.object(agent._jira, "get_story", new_callable=AsyncMock, return_value=MOCK_STORY), \
-         patch.object(agent._client.messages, "create") as mock_create:
+         patch.object(agent._client.messages, "create", new_callable=AsyncMock) as mock_create:
         mock_create.return_value = MagicMock(
             content=[MagicMock(text=json.dumps(MOCK_ANALYSIS))]
         )
@@ -46,7 +46,7 @@ async def test_analyze_story_returns_structured_analysis():
 async def test_generate_test_cases_covers_all_types():
     agent = ManualQAAgent()
     with patch.object(agent._jira, "get_story", new_callable=AsyncMock, return_value=MOCK_STORY), \
-         patch.object(agent._client.messages, "create") as mock_create:
+         patch.object(agent._client.messages, "create", new_callable=AsyncMock) as mock_create:
         mock_create.return_value = MagicMock(
             content=[MagicMock(text=json.dumps(MOCK_TEST_CASES))]
         )
@@ -65,7 +65,7 @@ async def test_generate_test_cases_covers_all_types():
 async def test_generate_test_cases_all_have_required_fields():
     agent = ManualQAAgent()
     with patch.object(agent._jira, "get_story", new_callable=AsyncMock, return_value=MOCK_STORY), \
-         patch.object(agent._client.messages, "create") as mock_create:
+         patch.object(agent._client.messages, "create", new_callable=AsyncMock) as mock_create:
         mock_create.return_value = MagicMock(
             content=[MagicMock(text=json.dumps(MOCK_TEST_CASES))]
         )
@@ -105,7 +105,7 @@ async def test_build_traceability_map_keys_match_story_ids():
     agent = ManualQAAgent()
     with patch.object(agent._jira, "get_story", new_callable=AsyncMock, side_effect=[
         MOCK_SPRINT_STORIES[0], MOCK_SPRINT_STORIES[1]
-    ]), patch.object(agent._client.messages, "create") as mock_create:
+    ]), patch.object(agent._client.messages, "create", new_callable=AsyncMock) as mock_create:
         mock_create.return_value = MagicMock(
             content=[MagicMock(text=json.dumps(MOCK_TRACEABILITY))]
         )
@@ -121,7 +121,7 @@ async def test_score_release_readiness_returns_score_and_recommendation():
     agent = ManualQAAgent()
     with patch.object(agent._jira, "get_sprint_stories", new_callable=AsyncMock, return_value=MOCK_SPRINT_STORIES), \
          patch.object(agent, "generate_test_cases", new_callable=AsyncMock, return_value=MOCK_TEST_CASES), \
-         patch.object(agent._client.messages, "create") as mock_create:
+         patch.object(agent._client.messages, "create", new_callable=AsyncMock) as mock_create:
         mock_create.return_value = MagicMock(
             content=[MagicMock(text=json.dumps(MOCK_SCORE))]
         )

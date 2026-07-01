@@ -34,7 +34,16 @@ export function useAgentChat(sessionId: string, projectId: string) {
         const data = event.data || {};
 
         if (data.test_cases && data.test_cases.length > 0) {
-          setTestCases((prev) => [...prev, ...data.test_cases!]);
+          setTestCases((prev) => [
+            ...prev,
+            ...data.test_cases!.map((tc) => ({
+              ...tc,
+              id: tc.id || crypto.randomUUID(),
+              story_id: tc.story_id || (data.story_id as string) || "",
+              source: tc.source || ("ai_generated" as const),
+              created_at: tc.created_at || new Date().toISOString(),
+            })),
+          ]);
           appendAssistantMessage(`สร้าง ${data.test_cases.length} test cases สำเร็จ ✓`);
         }
         if (data.analysis) {

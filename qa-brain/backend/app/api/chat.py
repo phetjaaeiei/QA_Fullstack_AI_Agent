@@ -1,8 +1,14 @@
 from typing import Optional
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, Depends
 from jose import JWTError, jwt
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from app.config import settings
 from app.agents.orchestrator import QAOrchestrator
+from app.database import get_db
+from app.models.project import Project
+from app.models.story import Story
+from app.models.test_case import TestCase
 
 router = APIRouter()
 orchestrator = QAOrchestrator()
@@ -16,14 +22,57 @@ def verify_ws_token(token: str) -> Optional[str]:
         return None
 
 
+async def _persist_test_cases(
+    db: AsyncSession,
+    jira_id: str,
+    test_cases: list,
+) -> None:
+    project_key = jira_id.split("-")[0]
+    proj_res = await db.execute(select(Project).where(Project.jira_project_key == project_key))
+    project = proj_res.scalar_one_or_none()
+    if not project:
+        project = Project(name=f"Project {project_key}", jira_project_key=project_key)
+        db.add(project)
+        await db.flush()
+
+    story_res = await db.execute(select(Story).where(Story.jira_id == jira_id))
+    story = story_res.scalar_one_or_none()
+    if not story:
+        story = Story(
+            project_id=project.id,
+            jira_id=jira_id,
+            title=f"Story {jira_id}",
+            description="",
+            status="Unknown",
+        )
+        db.add(story)
+        await db.flush()
+
+    for tc_data in test_cases:
+        tc = TestCase(
+            story_id=story.id,
+            title=tc_data.get("title", ""),
+            type=tc_data.get("type", "functional"),
+            steps=tc_data.get("steps", []),
+            expected_result=tc_data.get("expected_result", ""),
+            priority=tc_data.get("priority", "medium"),
+            source="ai_generated",
+            created_by_agent="manual_qa",
+        )
+        db.add(tc)
+    await db.commit()
+
+
 @router.websocket("/ws/chat/{session_id}")
 async def websocket_chat(
     websocket: WebSocket,
     session_id: str,
     token: str = Query(...),
+    db: AsyncSession = Depends(get_db),
 ):
     email = verify_ws_token(token)
     if not email:
+        await websocket.accept()
         await websocket.close(code=4001)
         return
 
@@ -38,8 +87,15 @@ async def websocket_chat(
             content = data.get("content", "")
             project_id = data.get("project_id", "")
 
-            async for event in orchestrator.process(content, session_id, project_id):
-                await websocket.send_json(event)
+            try:
+                async for event in orchestrator.process(content, session_id, project_id):
+                    if event.get("type") == "orchestrator_done":
+                        ev_data = event.get("data") or {}
+                        if ev_data.get("test_cases") and ev_data.get("story_id"):
+                            await _persist_test_cases(db, ev_data["story_id"], ev_data["test_cases"])
+                    await websocket.send_json(event)
+            except Exception as e:
+                await websocket.send_json({"type": "error", "message": str(e)})
 
     except WebSocketDisconnect:
         pass

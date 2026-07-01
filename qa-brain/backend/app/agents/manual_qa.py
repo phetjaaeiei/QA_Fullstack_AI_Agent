@@ -1,8 +1,17 @@
 import json
+import re as _re
 import anthropic
 from app.config import settings
 from app.mcp_clients.jira_client import JiraClient
 from app.mcp_clients.openapi_client import OpenAPIClient
+
+
+def _parse_json(text: str):
+    text = text.strip()
+    text = _re.sub(r"^```(?:json)?\s*", "", text)
+    text = _re.sub(r"\s*```$", "", text)
+    return json.loads(text.strip())
+
 
 SYSTEM_PROMPT = """You are an expert Manual QA Engineer with 10+ years of experience in test design.
 
@@ -22,7 +31,7 @@ Rules:
 
 class ManualQAAgent:
     def __init__(self):
-        self._client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        self._client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
         self._jira = JiraClient()
         self._openapi = OpenAPIClient()
         self._model = "claude-sonnet-4-6"
@@ -30,7 +39,7 @@ class ManualQAAgent:
     async def analyze_story(self, story_id: str) -> dict:
         story = await self._jira.get_story(story_id)
 
-        response = self._client.messages.create(
+        response = await self._client.messages.create(
             model=self._model,
             max_tokens=2000,
             system=SYSTEM_PROMPT,
@@ -52,12 +61,12 @@ Return JSON only:
             }]
         )
 
-        return json.loads(response.content[0].text)
+        return _parse_json(response.content[0].text)
 
     async def generate_test_cases(self, story_id: str, source: str = "jira") -> list[dict]:
         story = await self._jira.get_story(story_id)
 
-        response = self._client.messages.create(
+        response = await self._client.messages.create(
             model=self._model,
             max_tokens=6000,
             system=SYSTEM_PROMPT,
@@ -90,10 +99,10 @@ REQUIRED coverage — you must include at least one of each type:
             }]
         )
 
-        return json.loads(response.content[0].text)
+        return _parse_json(response.content[0].text)
 
     async def suggest_security_cases(self, test_cases: list[dict]) -> list[dict]:
-        response = self._client.messages.create(
+        response = await self._client.messages.create(
             model=self._model,
             max_tokens=3000,
             system=SYSTEM_PROMPT,
@@ -116,7 +125,7 @@ Return JSON array of NEW security test cases only (don't repeat existing ones):
 ]"""
             }]
         )
-        return json.loads(response.content[0].text)
+        return _parse_json(response.content[0].text)
 
     async def build_traceability_map(self, story_ids: list[str]) -> dict:
         stories = []
@@ -128,7 +137,7 @@ Return JSON array of NEW security test cases only (don't repeat existing ones):
             f"- {s['jira_id']}: {s['title']}" for s in stories
         ])
 
-        response = self._client.messages.create(
+        response = await self._client.messages.create(
             model=self._model,
             max_tokens=3000,
             system=SYSTEM_PROMPT,
@@ -147,13 +156,13 @@ Return JSON where keys are story IDs:
 }}"""
             }]
         )
-        return json.loads(response.content[0].text)
+        return _parse_json(response.content[0].text)
 
     async def detect_coverage_gaps(self, sprint_id: str) -> dict:
         stories = await self._jira.get_sprint_stories(sprint_id)
         story_summaries = "\n".join([f"- {s['jira_id']}: {s['title']}" for s in stories])
 
-        response = self._client.messages.create(
+        response = await self._client.messages.create(
             model=self._model,
             max_tokens=2000,
             system=SYSTEM_PROMPT,
@@ -172,7 +181,7 @@ Return JSON:
 }}"""
             }]
         )
-        return json.loads(response.content[0].text)
+        return _parse_json(response.content[0].text)
 
     async def score_release_readiness(self, sprint_id: str) -> dict:
         stories = await self._jira.get_sprint_stories(sprint_id)
@@ -190,7 +199,7 @@ Return JSON:
         )
         type_counts_json = json.dumps(type_counts)
 
-        response = self._client.messages.create(
+        response = await self._client.messages.create(
             model=self._model,
             max_tokens=2000,
             system=SYSTEM_PROMPT,
@@ -215,4 +224,4 @@ Return JSON:
 }}"""
             }]
         )
-        return json.loads(response.content[0].text)
+        return _parse_json(response.content[0].text)

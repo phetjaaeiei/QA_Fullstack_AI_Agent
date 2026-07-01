@@ -62,3 +62,9 @@ async def login(
 
     token = create_access_token({"sub": user.email, "role": user.role})
     return {"access_token": token, "token_type": "bearer"}
+
+
+@router.post("/refresh")
+async def refresh_token(current_user: User = Depends(get_current_user)):
+    token = create_access_token({"sub": current_user.email, "role": current_user.role})
+    return {"access_token": token, "token_type": "bearer"}

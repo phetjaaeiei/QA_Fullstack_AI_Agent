@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,10 +15,10 @@ router = APIRouter(prefix="/api", tags=["test-cases"])
 
 class TestCaseCreate(BaseModel):
     title: str
-    type: str
+    type: Literal["functional", "edge", "negative", "security", "e2e", "performance"]
     steps: List[str]
     expected_result: str
-    priority: str = "medium"
+    priority: Literal["high", "medium", "low"] = "medium"
     source: str = "ai_generated"
 
 
@@ -77,3 +77,14 @@ async def create_test_case(
     await db.commit()
     await db.refresh(tc)
     return {"id": tc.id, "title": tc.title, "type": tc.type}
+
+
+@router.get("/sprints/{sprint_id}/release-score")
+async def get_sprint_release_score(
+    sprint_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    from app.agents.manual_qa import ManualQAAgent
+    agent = ManualQAAgent()
+    result = await agent.score_release_readiness(sprint_id)
+    return result

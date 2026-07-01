@@ -66,3 +66,20 @@ async def test_create_test_case_unknown_story_returns_404(db_session, auth_token
             headers={"Authorization": f"Bearer {auth_token}"},
         )
     assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_sprint_release_score_returns_score(auth_token):
+    from unittest.mock import AsyncMock, patch
+    mock_score = {"score": 85, "recommendation": "go", "findings": ["Good coverage"]}
+    with patch("app.agents.manual_qa.ManualQAAgent.score_release_readiness", new_callable=AsyncMock) as mock_score_fn:
+        mock_score_fn.return_value = mock_score
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get(
+                "/api/sprints/SPRINT-1/release-score",
+                headers={"Authorization": f"Bearer {auth_token}"},
+            )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["score"] == 85
+    assert data["recommendation"] == "go"
