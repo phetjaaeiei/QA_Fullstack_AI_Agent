@@ -28,5 +28,5 @@ async def test_login_wrong_password_returns_401(test_user):
 @pytest.mark.asyncio
 async def test_protected_endpoint_without_token_returns_401():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.get("/api/test-cases")
+        response = await client.get("/api/stories/PROJ-123/test-cases")
     assert response.status_code == 401
