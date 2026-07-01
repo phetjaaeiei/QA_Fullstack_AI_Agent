@@ -1162,7 +1162,7 @@ class QAOrchestrator:
             script_content = code_match.group(1).strip() if code_match else ""
             error_message = CODE_BLOCK_PATTERN.sub("", message).strip()
             return {"action": "auto_fix_script", "script_content": script_content, "error_message": error_message}
-        if any(w in msg for w in ["why fail", "failure", "root cause", "ทำไม fail"]):
+        if any(w in msg for w in ["why fail", "why did this fail", "failure", "root cause", "ทำไม fail"]):
             run_match = GH_RUN_URL_PATTERN.search(message)
             if run_match:
                 return {"action": "classify_failure", "repo": run_match.group(1), "run_id": run_match.group(2)}
