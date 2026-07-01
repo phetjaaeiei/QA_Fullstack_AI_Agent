@@ -57,3 +57,25 @@ async def test_load_house_style_reads_existing_file(tmp_path):
     style_path = tmp_path / "automation-standards.md"
     style_path.write_text("Use camelCase for test names.")
     assert _load_house_style(style_path) == "Use camelCase for test names."
+
+
+@pytest.mark.asyncio
+async def test_suggest_self_healing_returns_alternatives():
+    with patch("app.agents.automation_qa.settings.mock_mode", False):
+        agent = AutomationQAAgent()
+        mock_page_response = MagicMock()
+        mock_page_response.text = "<html><body><button id='submit-1'>Submit</button></body></html>"
+        mock_page_response.raise_for_status = lambda: None
+
+        with patch.object(agent._http, "get", new_callable=AsyncMock, return_value=mock_page_response), \
+             patch.object(agent._client.messages, "create", new_callable=AsyncMock) as mock_create:
+            mock_create.return_value = MagicMock(
+                content=[MagicMock(text=json.dumps({
+                    "alternatives": ["getByTestId('submit-1')"],
+                    "strategy": "prefer test-id",
+                }))]
+            )
+            result = await agent.suggest_self_healing("#submit-1", "https://example.com/checkout")
+
+    assert result["alternatives"] == ["getByTestId('submit-1')"]
+    assert "strategy" in result

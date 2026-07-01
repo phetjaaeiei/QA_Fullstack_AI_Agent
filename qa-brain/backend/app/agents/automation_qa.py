@@ -136,3 +136,40 @@ Return JSON only:
         )
 
         return _parse_json(response.content[0].text)
+
+    async def suggest_self_healing(self, broken_locator: str, page_url: str) -> dict:
+        if self._mock:
+            return {
+                "alternatives": [
+                    f"[MOCK] getByRole('button') — replaces {broken_locator}",
+                    "[MOCK] getByTestId('submit-btn')",
+                    "[MOCK] locator('button[type=submit]')",
+                ],
+                "strategy": "[MOCK] Prefer role/test-id selectors over brittle CSS paths",
+            }
+
+        page_response = await self._http.get(page_url)
+        page_response.raise_for_status()
+        page_html = page_response.text[:8000]
+
+        response = await self._client.messages.create(
+            model=self._model,
+            max_tokens=1500,
+            system=SYSTEM_PROMPT,
+            messages=[{
+                "role": "user",
+                "content": f"""This locator is broken: {broken_locator}
+
+Page HTML (truncated):
+{page_html}
+
+Suggest 3-5 alternative locators and a strategy.
+Return JSON only:
+{{
+  "alternatives": ["alternative locator 1", "alternative locator 2"],
+  "strategy": "why these are more resilient"
+}}"""
+            }]
+        )
+
+        return _parse_json(response.content[0].text)
