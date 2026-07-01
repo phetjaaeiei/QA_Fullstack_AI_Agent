@@ -62,3 +62,9 @@ async def test_user(db_session):
     await db_session.commit()
     await db_session.refresh(user)
     return user
+
+
+@pytest.fixture
+async def auth_token(test_user):
+    from app.api.auth import create_access_token
+    return create_access_token({"sub": test_user.email, "role": test_user.role})
