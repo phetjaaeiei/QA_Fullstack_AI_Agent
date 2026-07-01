@@ -1,6 +1,5 @@
 import pytest
-import json
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 from httpx import AsyncClient
 from httpx_ws import aconnect_ws
 from httpx_ws.transport import ASGIWebSocketTransport
