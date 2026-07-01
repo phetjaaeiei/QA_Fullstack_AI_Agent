@@ -1,3 +1,4 @@
+import os
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from app.models import Base, User
@@ -5,7 +6,10 @@ from app.database import get_db
 from app.main import app
 from passlib.context import CryptContext
 
-TEST_DATABASE_URL = "postgresql+asyncpg://qa_brain:qa_brain_pass@192.168.148.2:5432/qa_brain_test"
+TEST_DATABASE_URL = os.getenv(
+    "TEST_DATABASE_URL",
+    "postgresql+asyncpg://qa_brain:qa_brain_pass@localhost:5433/qa_brain_test"
+)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
