@@ -1,6 +1,5 @@
 import pytest
-import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 from app.agents.orchestrator import QAOrchestrator
 
 MOCK_TEST_CASES = [

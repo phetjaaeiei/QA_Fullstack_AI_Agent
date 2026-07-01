@@ -54,18 +54,21 @@ class QAOrchestrator:
             story_ids = intent.get("story_ids", [])
             yield {"type": "agent_start", "agent": "manual_qa", "message": f"Building traceability map for {len(story_ids)} stories..."}
             traceability = await self._manual_qa.build_traceability_map(story_ids)
+            yield {"type": "agent_complete", "agent": "manual_qa", "message": f"Traceability map built for {len(story_ids)} stories"}
             yield {"type": "orchestrator_done", "data": {"traceability": traceability}}
 
         elif action == "release_score":
             sprint_id = intent.get("sprint_id") or "SPRINT-1"
             yield {"type": "agent_start", "agent": "manual_qa", "message": f"Scoring release readiness for {sprint_id}..."}
             score = await self._manual_qa.score_release_readiness(sprint_id)
+            yield {"type": "agent_complete", "agent": "manual_qa", "message": f"Release score calculated: {score.get('score', 0)}/100"}
             yield {"type": "orchestrator_done", "data": {"release_score": score}}
 
         elif action == "coverage_gap":
             sprint_id = intent.get("sprint_id") or "SPRINT-1"
             yield {"type": "agent_start", "agent": "manual_qa", "message": f"Detecting coverage gaps in {sprint_id}..."}
             gaps = await self._manual_qa.detect_coverage_gaps(sprint_id)
+            yield {"type": "agent_complete", "agent": "manual_qa", "message": "Coverage gap analysis complete"}
             yield {"type": "orchestrator_done", "data": {"gaps": gaps}}
 
         else:
