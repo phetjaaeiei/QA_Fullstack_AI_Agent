@@ -37,4 +37,27 @@ and confirmed they work coherently across all 8 tasks. No Critical issues.
     JSON) in `automation_qa.py` — matches the pre-existing `ManualQAAgent`
     convention, flagged for awareness ahead of a real `ANTHROPIC_API_KEY`.
 
-Next: superpowers:finishing-a-development-branch.
+Backend PR opened: https://github.com/phetjaaeiei/QA_Fullstack_AI_Agent/pull/2
+(pushed and left open per user's choice of "push and create a PR")
+
+---
+
+# Frontend — Progress Ledger (same branch/PR, added on)
+
+Plan: docs/superpowers/plans/2026-07-02-automation-qa-agent-frontend.md
+
+Prerequisite fix (commit ec85d0e): frontend `npm run build` had never been
+run — missing `vite-env.d.ts`, missing `@types/node`, tsconfig `lib` too old
+for `replaceAll`. Fixed before starting frontend tasks since every task step
+verifies via `npm run build`.
+
+## Tasks
+
+- [ ] Task 1: Types & API Client for Automation Scripts
+- [ ] Task 2: Chat Feedback for Automation Actions
+- [ ] Task 3: ScriptsPanel Component
+- [ ] Task 4: Wire ScriptsPanel into Dashboard
+
+No frontend test framework exists in this project (Phase 1 shipped without
+one) — task reviewers verify via `npm run build` (TypeScript) plus reading
+code, not automated test evidence.
