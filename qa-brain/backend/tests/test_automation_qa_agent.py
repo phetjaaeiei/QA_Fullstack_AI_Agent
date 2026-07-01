@@ -123,3 +123,45 @@ async def test_auto_fix_script_returns_fixed_content():
 
     assert result["content"] == "fixed script"
     assert "explanation" in result
+
+
+MOCK_TEST_DATA = [
+    {"label": "Valid boundary", "value": "typical valid input"},
+    {"label": "Invalid input", "value": "malformed input expected to be rejected"},
+]
+
+MOCK_TRACEABILITY_MAPPING = {
+    "story_id": "PROJ-200",
+    "covers_acceptance_criteria": True,
+    "confidence": "high",
+    "notes": "Covers the happy path described in the acceptance criteria",
+}
+
+
+@pytest.mark.asyncio
+async def test_generate_test_data_returns_list():
+    with patch("app.agents.automation_qa.settings.mock_mode", False):
+        agent = AutomationQAAgent()
+        with patch.object(agent._client.messages, "create", new_callable=AsyncMock) as mock_create:
+            mock_create.return_value = MagicMock(
+                content=[MagicMock(text=json.dumps(MOCK_TEST_DATA))]
+            )
+            result = await agent.generate_test_data("Email field must accept valid emails and reject invalid ones")
+
+    assert len(result) == 2
+    assert result[0]["label"] == "Valid boundary"
+
+
+@pytest.mark.asyncio
+async def test_map_script_traceability_returns_mapping():
+    with patch("app.agents.automation_qa.settings.mock_mode", False):
+        agent = AutomationQAAgent()
+        with patch.object(agent._jira, "get_story", new_callable=AsyncMock, return_value=MOCK_STORY), \
+             patch.object(agent._client.messages, "create", new_callable=AsyncMock) as mock_create:
+            mock_create.return_value = MagicMock(
+                content=[MagicMock(text=json.dumps(MOCK_TRACEABILITY_MAPPING))]
+            )
+            result = await agent.map_script_traceability("PROJ-200", "test('reset password', async () => {});")
+
+    assert result["story_id"] == "PROJ-200"
+    assert result["covers_acceptance_criteria"] is True

@@ -236,3 +236,69 @@ Return JSON only:
         )
 
         return _parse_json(response.content[0].text)
+
+    async def generate_test_data(self, requirements: str) -> list:
+        if self._mock:
+            return [
+                {"label": "[MOCK] Valid boundary", "value": "typical valid input"},
+                {"label": "[MOCK] Minimum boundary", "value": "shortest allowed input"},
+                {"label": "[MOCK] Maximum boundary", "value": "longest allowed input"},
+                {"label": "[MOCK] Invalid input", "value": "malformed input expected to be rejected"},
+            ]
+
+        response = await self._client.messages.create(
+            model=self._model,
+            max_tokens=2000,
+            system=SYSTEM_PROMPT,
+            messages=[{
+                "role": "user",
+                "content": f"""Generate test data sets and boundary variations for this requirement.
+
+Requirement:
+{requirements}
+
+Return a JSON array:
+[
+  {{"label": "short description of the data set", "value": "the actual test data value"}}
+]"""
+            }]
+        )
+
+        return _parse_json(response.content[0].text)
+
+    async def map_script_traceability(self, story_id: str, script_content: str) -> dict:
+        if self._mock:
+            return {
+                "story_id": story_id,
+                "covers_acceptance_criteria": True,
+                "confidence": "medium",
+                "notes": "[MOCK] Script appears to cover the story's happy path",
+            }
+
+        story = await self._jira.get_story(story_id)
+
+        response = await self._client.messages.create(
+            model=self._model,
+            max_tokens=1000,
+            system=SYSTEM_PROMPT,
+            messages=[{
+                "role": "user",
+                "content": f"""Given this automation script and the story it's meant to cover, assess whether the script covers the story's acceptance criteria.
+
+Story ID: {story['jira_id']}
+Acceptance Criteria: {story.get('acceptance_criteria') or 'Not provided'}
+
+Script:
+{script_content}
+
+Return JSON only:
+{{
+  "story_id": "{story['jira_id']}",
+  "covers_acceptance_criteria": true or false,
+  "confidence": "high|medium|low",
+  "notes": "brief explanation"
+}}"""
+            }]
+        )
+
+        return _parse_json(response.content[0].text)
