@@ -15,8 +15,26 @@ Plan: docs/superpowers/plans/2026-07-02-automation-qa-agent-backend.md
 - [x] Task 7: Orchestrator Routing (commits e62f39b..33528af, review clean; caught+fixed a real plan bug mid-task: failure-intent keyword list didn't match the plan's own test message, added "why did this fail")
 - [x] Task 8: Persistence & REST API (commits c2a62fb..bd0f8bc, review clean; minor: new REST test only asserts `framework`, not `health_status`/`content`/`ci_run_url`)
 
-## All 8 tasks complete. Next: final whole-branch review, then superpowers:finishing-a-development-branch.
+## All 8 tasks complete. Final whole-branch review done (Opus). Ready to merge.
 
-### Minor findings carried to final review (none blocking)
-- Task 3: one test deviated harmlessly from the brief's literal snippet (used AsyncMock + mock_mode patch instead of the brief's plain Mock — necessary correction, not a defect).
-- Task 8: `test_get_story_scripts_returns_list` doesn't assert `health_status`, `content`, or `ci_run_url` — coverage gap, not a correctness bug (endpoint mirrors the already-tested `test_cases.py` pattern).
+Final review (merge-base edf1575..dab1595): traced both end-to-end flows
+(script generation → persistence → REST read; CI-failure classification)
+and confirmed they work coherently across all 8 tasks. No Critical issues.
+
+- Fixed (commit b81353c, re-review confirmed ✅): `test_generate_script_from_spec_returns_script`
+  didn't patch `mock_mode=False`, so with the repo's current `MOCK_MODE=true`
+  it passed vacuously without exercising the real Claude-call branch.
+- Minor, accepted as non-blocking:
+  - `map_script_traceability` doesn't persist its mapping to the DB yet
+    (design spec literally says "persists... to DB"); deferred to the
+    frontend/traceability-graph phase since the mapping is advisory and no
+    data is lost.
+  - `test_get_story_scripts_returns_list` (Task 8) only asserts `framework`,
+    not `health_status`/`content`/`ci_run_url`.
+  - One Task 3 test deviated harmlessly from the brief's literal snippet
+    (necessary AsyncMock/mock_mode correction, not a defect).
+  - Prompt-injection surface via unescaped external input (page HTML, CI
+    JSON) in `automation_qa.py` — matches the pre-existing `ManualQAAgent`
+    convention, flagged for awareness ahead of a real `ANTHROPIC_API_KEY`.
+
+Next: superpowers:finishing-a-development-branch.
