@@ -50,7 +50,12 @@ export function useAgentChat(sessionId: string, projectId: string) {
       }
     };
 
-    ws.onerror = () => setActiveAgent(null);
+    ws.onerror = () => {
+      setActiveAgent(null);
+      appendAssistantMessage("เชื่อมต่อไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
+    };
+
+    ws.onclose = () => setActiveAgent(null);
 
     return () => ws.close();
   }, [sessionId]);
