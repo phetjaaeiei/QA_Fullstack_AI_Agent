@@ -68,3 +68,29 @@ async def test_user(db_session):
 async def auth_token(test_user):
     from app.api.auth import create_access_token
     return create_access_token({"sub": test_user.email, "role": test_user.role})
+
+
+@pytest.fixture
+async def test_project(db_session):
+    from app.models.project import Project
+    project = Project(name="Test Project", jira_project_key="PROJ")
+    db_session.add(project)
+    await db_session.commit()
+    await db_session.refresh(project)
+    return project
+
+
+@pytest.fixture
+async def test_story(db_session, test_project):
+    from app.models.story import Story
+    story = Story(
+        project_id=test_project.id,
+        jira_id="PROJ-123",
+        title="User login",
+        description="Login feature",
+        status="In Progress",
+    )
+    db_session.add(story)
+    await db_session.commit()
+    await db_session.refresh(story)
+    return story
