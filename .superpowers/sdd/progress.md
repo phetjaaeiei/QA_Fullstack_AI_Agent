@@ -57,6 +57,6 @@ Prerequisite: `npm install` run in this worktree (node_modules didn't exist, fre
 - [x] Task 2: Chat Feedback for Security QA Actions (commits 489e6eb..7a5bdaa, review clean; reviewer hand-traced the empty-roles RBAC fallback and confirmed it never renders blank)
 - [x] Task 3: Render Clickable Links in Chat Messages (commits 971b310..85a36e0, review clean)
 - [x] Task 4: CoverageLegend Component (commits 9049707..9d8b4e9, review clean)
-- [ ] Task 5: CoverageCell Component
+- [x] Task 5: CoverageCell Component (commits aff49be..e2fec02, review clean)
 - [ ] Task 6: OwaspCoverage Panel Component
 - [ ] Task 7: Wire OWASP Tab into Dashboard
