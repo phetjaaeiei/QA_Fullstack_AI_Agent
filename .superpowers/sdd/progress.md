@@ -59,4 +59,6 @@ Prerequisite: `npm install` run in this worktree (node_modules didn't exist, fre
 - [x] Task 4: CoverageLegend Component (commits 9049707..9d8b4e9, review clean)
 - [x] Task 5: CoverageCell Component (commits aff49be..e2fec02, review clean)
 - [x] Task 6: OwaspCoverage Panel Component (commits b5a477e..5827915, review clean; reviewer verified CoverageCell/CoverageLegend prop usage against their real Task 4/5 signatures)
-- [ ] Task 7: Wire OWASP Tab into Dashboard
+- [x] Task 7: Wire OWASP Tab into Dashboard (commits a0258a4..dee60da, review clean; reviewer verified cross-task interfaces against real Task 2/6 source and confirmed existing Test Cases/Scripts tab behavior is byte-identical, no regression)
+
+## All 7 frontend tasks complete. Proceeding to final whole-batch review.
