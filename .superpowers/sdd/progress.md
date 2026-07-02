@@ -58,5 +58,5 @@ Prerequisite: `npm install` run in this worktree (node_modules didn't exist, fre
 - [x] Task 3: Render Clickable Links in Chat Messages (commits 971b310..85a36e0, review clean)
 - [x] Task 4: CoverageLegend Component (commits 9049707..9d8b4e9, review clean)
 - [x] Task 5: CoverageCell Component (commits aff49be..e2fec02, review clean)
-- [ ] Task 6: OwaspCoverage Panel Component
+- [x] Task 6: OwaspCoverage Panel Component (commits b5a477e..5827915, review clean; reviewer verified CoverageCell/CoverageLegend prop usage against their real Task 4/5 signatures)
 - [ ] Task 7: Wire OWASP Tab into Dashboard
