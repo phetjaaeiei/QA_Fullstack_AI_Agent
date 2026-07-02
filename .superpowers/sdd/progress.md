@@ -10,7 +10,7 @@ Plan: docs/superpowers/plans/2026-07-02-security-qa-agent-backend.md
 - [x] Task 2: JiraClient.create_issue() (commits e4ec94b..83a12c9, review clean after fix; fixed Important: base_url trailing-slash could double-slash the returned Jira URL)
 - [x] Task 3: SecurityQAAgent — OWASP Test Case Generation & Story Mapping (commits 82bdb61..e17e186, review clean; minor: mock-mode tests don't assert zero real API calls, inherited from the brief's own test code, not a defect)
 - [x] Task 4: SecurityQAAgent — RBAC Matrix & API Security Checklist (commits 94bb2aa..5d71a7c, review clean; minor plan-mandated: empty `roles` list would IndexError in mock branch, matches brief's literal code, no test exercises it)
-- [ ] Task 5: SecurityQAAgent — Vulnerability Triage & Security Defect Writing
+- [x] Task 5: SecurityQAAgent — Vulnerability Triage & Security Defect Writing (commits 77ce1ed..ed9a15f, review clean; reviewer independently traced control flow and confirmed mock mode never calls JiraClient.create_issue)
 - [ ] Task 6: SecurityQAAgent — OWASP Coverage Dashboard
 - [ ] Task 7: Orchestrator Routing
 - [ ] Task 8: Persistence & REST API
