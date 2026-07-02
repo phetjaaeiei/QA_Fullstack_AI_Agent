@@ -55,7 +55,7 @@ verifies via `npm run build`.
 
 - [x] Task 1: Types & API Client for Automation Scripts (commits 178b462..ca565e9, review clean)
 - [x] Task 2: Chat Feedback for Automation Actions (commits a13c45d..1cec66a, review clean; minor: one harmless redundant type cast matching pre-existing style)
-- [ ] Task 3: ScriptsPanel Component
+- [x] Task 3: ScriptsPanel Component (commits 4283ee9..d40060f, review clean)
 - [ ] Task 4: Wire ScriptsPanel into Dashboard
 
 No frontend test framework exists in this project (Phase 1 shipped without
