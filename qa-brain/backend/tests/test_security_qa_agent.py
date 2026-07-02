@@ -37,6 +37,37 @@ MOCK_OWASP_MAPPING = [
     },
 ]
 
+MOCK_RBAC_MATRIX = {
+    "roles": ["admin", "member", "guest"],
+    "matrix": [
+        {
+            "boundary": "Delete another user's project",
+            "access": {"admin": "allow", "member": "deny", "guest": "deny"},
+        },
+        {
+            "boundary": "View own project settings",
+            "access": {"admin": "allow", "member": "allow", "guest": "deny"},
+        },
+    ],
+}
+
+SAMPLE_OPENAPI_SPEC = {
+    "openapi": "3.0.0",
+    "info": {"title": "Sample API", "version": "1.0.0"},
+    "paths": {
+        "/users/{id}": {
+            "get": {"summary": "Get user", "parameters": [{"name": "id", "in": "path"}], "responses": {"200": {"description": "OK"}}},
+            "delete": {"summary": "Delete user", "parameters": [{"name": "id", "in": "path"}], "responses": {"204": {"description": "No Content"}}},
+        }
+    },
+}
+
+MOCK_API_SECURITY_CHECKLIST = {
+    "broken_access": ["Verify /users/{id} DELETE checks the caller owns or administers the target user"],
+    "injection": ["Verify {id} path parameter is validated as a UUID/int before use in queries"],
+    "auth": ["Verify /users/{id} endpoints require an authenticated session"],
+}
+
 
 @pytest.mark.asyncio
 async def test_generate_owasp_test_cases_returns_list():
@@ -92,3 +123,64 @@ async def test_map_story_to_owasp_mock_mode_returns_mock_fixture():
 
     assert len(result) >= 1
     assert result[0]["notes"].startswith("[MOCK]")
+
+
+@pytest.mark.asyncio
+async def test_generate_rbac_matrix_returns_matrix():
+    with patch("app.agents.security_qa.settings.mock_mode", False):
+        agent = SecurityQAAgent()
+        with patch.object(agent._client.messages, "create", new_callable=AsyncMock) as mock_create:
+            mock_create.return_value = MagicMock(
+                content=[MagicMock(text=json.dumps(MOCK_RBAC_MATRIX))]
+            )
+            result = await agent.generate_rbac_matrix(
+                roles=["admin", "member", "guest"],
+                feature_description="Project settings page with delete and view actions",
+            )
+
+    assert result["roles"] == ["admin", "member", "guest"]
+    assert len(result["matrix"]) == 2
+    assert result["matrix"][0]["access"]["admin"] == "allow"
+
+
+@pytest.mark.asyncio
+async def test_generate_rbac_matrix_mock_mode_returns_mock_fixture():
+    with patch("app.agents.security_qa.settings.mock_mode", True):
+        agent = SecurityQAAgent()
+        result = await agent.generate_rbac_matrix(
+            roles=["admin", "member"],
+            feature_description="Billing page",
+        )
+
+    assert result["roles"] == ["admin", "member"]
+    assert len(result["matrix"]) >= 1
+    assert result["matrix"][0]["boundary"].startswith("[MOCK]")
+
+
+@pytest.mark.asyncio
+async def test_generate_api_security_checklist_returns_checklist():
+    with patch("app.agents.security_qa.settings.mock_mode", False):
+        agent = SecurityQAAgent()
+        with patch.object(agent._openapi, "parse_spec", new_callable=AsyncMock, return_value=SAMPLE_OPENAPI_SPEC), \
+             patch.object(agent._client.messages, "create", new_callable=AsyncMock) as mock_create:
+            mock_create.return_value = MagicMock(
+                content=[MagicMock(text=json.dumps(MOCK_API_SECURITY_CHECKLIST))]
+            )
+            result = await agent.generate_api_security_checklist("https://example.com/openapi.json")
+
+    assert "broken_access" in result
+    assert "injection" in result
+    assert "auth" in result
+    assert len(result["broken_access"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_generate_api_security_checklist_mock_mode_returns_mock_fixture():
+    with patch("app.agents.security_qa.settings.mock_mode", True):
+        agent = SecurityQAAgent()
+        with patch.object(agent._openapi, "parse_spec", new_callable=AsyncMock, return_value=SAMPLE_OPENAPI_SPEC):
+            result = await agent.generate_api_security_checklist("https://example.com/openapi.json")
+
+    assert result["broken_access"][0].startswith("[MOCK]")
+    assert "injection" in result
+    assert "auth" in result

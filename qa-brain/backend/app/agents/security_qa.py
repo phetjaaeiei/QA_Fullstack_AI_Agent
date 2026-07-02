@@ -189,3 +189,78 @@ Return a JSON array:
         )
 
         return _parse_json(response.content[0].text)
+
+    async def generate_rbac_matrix(self, roles: list, feature_description: str) -> dict:
+        if self._mock:
+            return {
+                "roles": roles,
+                "matrix": [
+                    {
+                        "boundary": f"[MOCK] Access boundary for: {feature_description[:60]}",
+                        "access": {role: ("allow" if role == roles[0] else "deny") for role in roles},
+                    }
+                ],
+            }
+
+        response = await self._client.messages.create(
+            model=self._model,
+            max_tokens=3000,
+            system=SYSTEM_PROMPT,
+            messages=[{
+                "role": "user",
+                "content": f"""Build a role-based access control (RBAC) test matrix for this feature.
+
+Roles: {json.dumps(roles)}
+Feature description: {feature_description}
+
+For each meaningful access boundary (an action or resource whose access should differ by role), determine whether each role should be allowed or denied.
+Return JSON only:
+{{
+  "roles": {json.dumps(roles)},
+  "matrix": [
+    {{
+      "boundary": "description of the access boundary being tested",
+      "access": {{"role_name": "allow|deny", ...}}
+    }}
+  ]
+}}"""
+            }]
+        )
+
+        return _parse_json(response.content[0].text)
+
+    async def generate_api_security_checklist(self, spec_url_or_path: str) -> dict:
+        if self._mock:
+            spec = await self._openapi.parse_spec(spec_url_or_path)
+            endpoints = self._openapi.list_endpoints(spec)
+            first_path = endpoints[0]["path"] if endpoints else "the API"
+            return {
+                "broken_access": [f"[MOCK] Verify {first_path} enforces per-resource authorization"],
+                "injection": [f"[MOCK] Verify {first_path} validates and sanitizes all path/query parameters"],
+                "auth": [f"[MOCK] Verify {first_path} requires a valid authenticated session"],
+            }
+
+        spec = await self._openapi.parse_spec(spec_url_or_path)
+        endpoints = self._openapi.list_endpoints(spec)
+
+        response = await self._client.messages.create(
+            model=self._model,
+            max_tokens=3000,
+            system=SYSTEM_PROMPT,
+            messages=[{
+                "role": "user",
+                "content": f"""Generate a security checklist for this API's endpoints, organized by OWASP risk area.
+
+Endpoints:
+{json.dumps(endpoints, indent=2)}
+
+Return JSON only:
+{{
+  "broken_access": ["checklist item covering authorization/IDOR risks"],
+  "injection": ["checklist item covering injection risks"],
+  "auth": ["checklist item covering authentication risks"]
+}}"""
+            }]
+        )
+
+        return _parse_json(response.content[0].text)
