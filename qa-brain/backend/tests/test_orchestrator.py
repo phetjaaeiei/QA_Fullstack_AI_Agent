@@ -208,3 +208,154 @@ async def test_process_maps_script_traceability():
 
     done_event = next(e for e in events if e["type"] == "orchestrator_done")
     assert done_event["data"]["traceability_mapping"]["story_id"] == "PROJ-123"
+
+
+@pytest.mark.asyncio
+async def test_process_generates_owasp_test_cases():
+    orchestrator = QAOrchestrator()
+    events = []
+
+    with patch.object(orchestrator._security_qa, "generate_owasp_test_cases", new_callable=AsyncMock,
+                       return_value=[{"title": "x", "type": "security", "owasp_category": "A03:2021-Injection", "steps": ["s"], "expected_result": "e", "priority": "high"}]):
+        async for event in orchestrator.process(
+            message="generate owasp test cases for PROJ-123",
+            session_id="test-session",
+            project_id="proj-001",
+        ):
+            events.append(event)
+
+    done_event = next(e for e in events if e["type"] == "orchestrator_done")
+    assert len(done_event["data"]["owasp_test_cases"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_process_maps_story_to_owasp_and_not_traceability():
+    """Collision guard: an OWASP-qualified 'map' message must route to
+    map_story_to_owasp, not the generic traceability action."""
+    orchestrator = QAOrchestrator()
+    events = []
+
+    with patch.object(orchestrator._security_qa, "map_story_to_owasp", new_callable=AsyncMock,
+                       return_value=[{"owasp_category": "A01:2021-Broken Access Control", "status": "gap", "risk_level": "high", "notes": "n"}]), \
+         patch.object(orchestrator._manual_qa, "build_traceability_map", new_callable=AsyncMock) as mock_traceability:
+        async for event in orchestrator.process(
+            message="map story to owasp for PROJ-123",
+            session_id="test-session",
+            project_id="proj-001",
+        ):
+            events.append(event)
+
+    mock_traceability.assert_not_called()
+    done_event = next(e for e in events if e["type"] == "orchestrator_done")
+    assert "owasp_mapping" in done_event["data"]
+    assert done_event["data"]["owasp_mapping"][0]["owasp_category"] == "A01:2021-Broken Access Control"
+
+
+@pytest.mark.asyncio
+async def test_process_still_routes_bare_map_to_traceability():
+    """Collision guard: a bare 'map' message with no OWASP qualifier must
+    still route to the generic traceability action."""
+    orchestrator = QAOrchestrator()
+    events = []
+
+    with patch.object(orchestrator._manual_qa, "build_traceability_map", new_callable=AsyncMock,
+                       return_value={"PROJ-123": ["Some test case"]}):
+        async for event in orchestrator.process(
+            message="map PROJ-123 to test cases",
+            session_id="test-session",
+            project_id="proj-001",
+        ):
+            events.append(event)
+
+    done_event = next(e for e in events if e["type"] == "orchestrator_done")
+    assert "traceability" in done_event["data"]
+
+
+@pytest.mark.asyncio
+async def test_process_generates_rbac_matrix():
+    orchestrator = QAOrchestrator()
+    events = []
+
+    with patch.object(orchestrator._security_qa, "generate_rbac_matrix", new_callable=AsyncMock,
+                       return_value={"roles": ["admin", "member"], "matrix": [{"boundary": "b", "access": {"admin": "allow", "member": "deny"}}]}):
+        async for event in orchestrator.process(
+            message="generate an rbac matrix for admin and member roles on the billing page",
+            session_id="test-session",
+            project_id="proj-001",
+        ):
+            events.append(event)
+
+    done_event = next(e for e in events if e["type"] == "orchestrator_done")
+    assert done_event["data"]["rbac_matrix"]["roles"] == ["admin", "member"]
+
+
+@pytest.mark.asyncio
+async def test_process_generates_api_security_checklist():
+    orchestrator = QAOrchestrator()
+    events = []
+
+    with patch.object(orchestrator._security_qa, "generate_api_security_checklist", new_callable=AsyncMock,
+                       return_value={"broken_access": ["a"], "injection": ["b"], "auth": ["c"]}):
+        async for event in orchestrator.process(
+            message="generate api security checklist for https://example.com/openapi.json",
+            session_id="test-session",
+            project_id="proj-001",
+        ):
+            events.append(event)
+
+    done_event = next(e for e in events if e["type"] == "orchestrator_done")
+    assert done_event["data"]["api_security_checklist"]["broken_access"] == ["a"]
+
+
+@pytest.mark.asyncio
+async def test_process_triages_vulnerabilities_from_pasted_json():
+    orchestrator = QAOrchestrator()
+    events = []
+
+    with patch.object(orchestrator._security_qa, "triage_vulnerabilities", new_callable=AsyncMock,
+                       return_value={"prioritized": [{"finding": "f", "severity": "high", "cvss_estimate": 7.0}], "false_positives": []}):
+        async for event in orchestrator.process(
+            message="triage vulnerabilities from this scanner result:\n```\n{\"alerts\": []}\n```",
+            session_id="test-session",
+            project_id="proj-001",
+        ):
+            events.append(event)
+
+    done_event = next(e for e in events if e["type"] == "orchestrator_done")
+    assert done_event["data"]["triage"]["prioritized"][0]["severity"] == "high"
+
+
+@pytest.mark.asyncio
+async def test_process_writes_security_defect():
+    orchestrator = QAOrchestrator()
+    events = []
+
+    with patch.object(orchestrator._security_qa, "write_security_defect", new_callable=AsyncMock,
+                       return_value={"report": "r", "impact": "i", "cvss_score": 9.0, "evidence": "e", "jira_id": "SCRUM-501", "url": "http://x"}):
+        async for event in orchestrator.process(
+            message="write a security defect with cvss score for this SQL injection finding",
+            session_id="test-session",
+            project_id="proj-001",
+        ):
+            events.append(event)
+
+    done_event = next(e for e in events if e["type"] == "orchestrator_done")
+    assert done_event["data"]["security_defect"]["jira_id"] == "SCRUM-501"
+
+
+@pytest.mark.asyncio
+async def test_process_builds_owasp_dashboard():
+    orchestrator = QAOrchestrator()
+    events = []
+
+    with patch.object(orchestrator._security_qa, "build_owasp_dashboard", new_callable=AsyncMock,
+                       return_value={"sprint_id": "SPRINT-5", "coverage_by_category": {"A01:2021-Broken Access Control": 100}, "summary": "s"}):
+        async for event in orchestrator.process(
+            message="show me the owasp dashboard for sprint 5",
+            session_id="test-session",
+            project_id="proj-001",
+        ):
+            events.append(event)
+
+    done_event = next(e for e in events if e["type"] == "orchestrator_done")
+    assert done_event["data"]["owasp_dashboard"]["sprint_id"] == "SPRINT-5"
