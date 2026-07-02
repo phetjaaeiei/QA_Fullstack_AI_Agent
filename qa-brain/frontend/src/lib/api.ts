@@ -1,4 +1,4 @@
-import type { TestCase, AutomationScript } from "./types";
+import type { TestCase, AutomationScript, SecurityFinding } from "./types";
 import axios from "axios";
 
 const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
@@ -40,5 +40,10 @@ export async function getStoryTestCases(jiraId: string): Promise<TestCase[]> {
 
 export async function getStoryScripts(jiraId: string): Promise<AutomationScript[]> {
   const { data } = await api.get<AutomationScript[]>(`/api/stories/${jiraId}/scripts`);
+  return data;
+}
+
+export async function getStorySecurityFindings(jiraId: string): Promise<SecurityFinding[]> {
+  const { data } = await api.get<SecurityFinding[]>(`/api/stories/${jiraId}/security-findings`);
   return data;
 }
