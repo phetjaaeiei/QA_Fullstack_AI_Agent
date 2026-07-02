@@ -53,7 +53,7 @@ Prerequisite: `npm install` run in this worktree (node_modules didn't exist, fre
 
 ## Tasks
 
-- [ ] Task 1: Types & API Client for Security Findings
+- [x] Task 1: Types & API Client for Security Findings (commits c6bd0da..fdc3f86, review clean; reviewer independently cross-checked all 7 AgentEvent type shapes against real backend payloads, all matched exactly)
 - [ ] Task 2: Chat Feedback for Security QA Actions
 - [ ] Task 3: Render Clickable Links in Chat Messages
 - [ ] Task 4: CoverageLegend Component
