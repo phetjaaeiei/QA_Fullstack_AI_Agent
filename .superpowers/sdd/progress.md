@@ -42,3 +42,21 @@ routing). No Critical issues.
   for awareness ahead of a real `ANTHROPIC_API_KEY`.
 
 ## Prior ledger (Automation QA Agent backend+frontend) is preserved in git history at this file's earlier revision — reset here per the same convention used when that plan started (commit ca6d296).
+
+---
+
+# Frontend — Progress Ledger (same branch/PR, added on)
+
+Plan: docs/superpowers/plans/2026-07-02-security-qa-agent-frontend.md
+
+Prerequisite: `npm install` run in this worktree (node_modules didn't exist, fresh worktree). `npm run build` verified clean baseline before starting.
+
+## Tasks
+
+- [ ] Task 1: Types & API Client for Security Findings
+- [ ] Task 2: Chat Feedback for Security QA Actions
+- [ ] Task 3: Render Clickable Links in Chat Messages
+- [ ] Task 4: CoverageLegend Component
+- [ ] Task 5: CoverageCell Component
+- [ ] Task 6: OwaspCoverage Panel Component
+- [ ] Task 7: Wire OWASP Tab into Dashboard
