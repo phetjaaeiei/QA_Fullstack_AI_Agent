@@ -13,6 +13,8 @@ Plan: docs/superpowers/plans/2026-07-02-security-qa-agent-backend.md
 - [x] Task 5: SecurityQAAgent — Vulnerability Triage & Security Defect Writing (commits 77ce1ed..ed9a15f, review clean; reviewer independently traced control flow and confirmed mock mode never calls JiraClient.create_issue)
 - [x] Task 6: SecurityQAAgent — OWASP Coverage Dashboard (commits 0275f5a..44f629d, review clean; reviewer hand-verified coverage % arithmetic matches test assertions exactly; SecurityQAAgent's 7/7 tools now complete)
 - [x] Task 7: Orchestrator Routing (commits a8a518a..4b891e7, review clean; reviewer traced full if/elif ordering directly, confirmed 7 security rules precede generic map/trace rule with no gap, both collision tests verified genuine)
-- [ ] Task 8: Persistence & REST API
+- [x] Task 8: Persistence & REST API (commits 4d9baa4..9d9d2a7, review clean; reviewer confirmed the 5 one-shot outputs are correctly never persisted, cross-checked orchestrator events never carry story_id for them)
+
+## All 8 tasks complete. Proceeding to final whole-branch review.
 
 ## Prior ledger (Automation QA Agent backend+frontend) is preserved in git history at this file's earlier revision — reset here per the same convention used when that plan started (commit ca6d296).
