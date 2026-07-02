@@ -54,7 +54,7 @@ Prerequisite: `npm install` run in this worktree (node_modules didn't exist, fre
 ## Tasks
 
 - [x] Task 1: Types & API Client for Security Findings (commits c6bd0da..fdc3f86, review clean; reviewer independently cross-checked all 7 AgentEvent type shapes against real backend payloads, all matched exactly)
-- [ ] Task 2: Chat Feedback for Security QA Actions
+- [x] Task 2: Chat Feedback for Security QA Actions (commits 489e6eb..7a5bdaa, review clean; reviewer hand-traced the empty-roles RBAC fallback and confirmed it never renders blank)
 - [ ] Task 3: Render Clickable Links in Chat Messages
 - [ ] Task 4: CoverageLegend Component
 - [ ] Task 5: CoverageCell Component
