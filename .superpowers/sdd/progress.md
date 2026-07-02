@@ -61,4 +61,26 @@ Prerequisite: `npm install` run in this worktree (node_modules didn't exist, fre
 - [x] Task 6: OwaspCoverage Panel Component (commits b5a477e..5827915, review clean; reviewer verified CoverageCell/CoverageLegend prop usage against their real Task 4/5 signatures)
 - [x] Task 7: Wire OWASP Tab into Dashboard (commits a0258a4..dee60da, review clean; reviewer verified cross-task interfaces against real Task 2/6 source and confirmed existing Test Cases/Scripts tab behavior is byte-identical, no regression)
 
-## All 7 frontend tasks complete. Proceeding to final whole-batch review.
+## All 7 frontend tasks complete. Final whole-batch review done (Opus). Ready to merge.
+
+Final review (bca2b5f..28e7f43): independently re-verified all 7 new
+`AgentEvent["data"]` type shapes against the real backend source
+(orchestrator.py/security_qa.py mock+real return dicts), confirmed
+`npm run build` passes clean, confirmed no `dangerouslySetInnerHTML` and no
+new npm dependencies, and traced `Message.link` end-to-end from Task 1's
+type through Task 2's wiring to Task 3's render. No Critical or Important
+issues.
+
+Minor notes, no action needed for this phase:
+- The empty-roles RBAC fallback (Task 2) is only fully effective on a real
+  Claude API call — in the current MOCK_MODE demo, `generate_rbac_matrix`'s
+  mock branch produces an empty `access` dict too, so rows render with just
+  the boundary label and no per-role data. Not blank, not a crash — will
+  resolve itself once a real ANTHROPIC_API_KEY lands.
+- OwaspCoverage's empty-state hint text says "PROJ-123" but the working demo
+  project is "SCRUM" (per project memory) — copy nit.
+- Page-refresh persistence gap (`getStorySecurityFindings` written but never
+  called) was already flagged as a known, documented limitation during
+  planning — reconfirmed here, not a new finding.
+
+Next: push to update PR #3 (same branch, already open).
