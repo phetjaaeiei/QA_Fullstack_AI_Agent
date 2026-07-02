@@ -10,6 +10,7 @@ from app.models.project import Project
 from app.models.story import Story
 from app.models.test_case import TestCase
 from app.models.automation_script import AutomationScript
+from app.models.security_finding import SecurityFinding
 
 router = APIRouter()
 orchestrator = QAOrchestrator()
@@ -86,6 +87,47 @@ async def _persist_automation_script(
     await db.commit()
 
 
+async def _persist_owasp_test_cases(
+    db: AsyncSession,
+    jira_id: str,
+    owasp_test_cases: list,
+) -> None:
+    story = await _get_or_create_story(db, jira_id)
+
+    for tc_data in owasp_test_cases:
+        tc = TestCase(
+            story_id=story.id,
+            title=tc_data.get("title", ""),
+            type="security",
+            steps=tc_data.get("steps", []),
+            expected_result=tc_data.get("expected_result", ""),
+            priority=tc_data.get("priority", "medium"),
+            source="ai_generated",
+            created_by_agent="security_qa",
+        )
+        db.add(tc)
+    await db.commit()
+
+
+async def _persist_owasp_mapping(
+    db: AsyncSession,
+    jira_id: str,
+    owasp_mapping: list,
+) -> None:
+    story = await _get_or_create_story(db, jira_id)
+
+    for finding_data in owasp_mapping:
+        finding = SecurityFinding(
+            story_id=story.id,
+            owasp_category=finding_data.get("owasp_category", ""),
+            status=finding_data.get("status", "gap"),
+            risk_level=finding_data.get("risk_level", "medium"),
+            notes=finding_data.get("notes", ""),
+        )
+        db.add(finding)
+    await db.commit()
+
+
 @router.websocket("/ws/chat/{session_id}")
 async def websocket_chat(
     websocket: WebSocket,
@@ -118,6 +160,10 @@ async def websocket_chat(
                             await _persist_test_cases(db, ev_data["story_id"], ev_data["test_cases"])
                         if ev_data.get("script") and ev_data.get("story_id"):
                             await _persist_automation_script(db, ev_data["story_id"], ev_data["script"])
+                        if ev_data.get("owasp_test_cases") and ev_data.get("story_id"):
+                            await _persist_owasp_test_cases(db, ev_data["story_id"], ev_data["owasp_test_cases"])
+                        if ev_data.get("owasp_mapping") and ev_data.get("story_id"):
+                            await _persist_owasp_mapping(db, ev_data["story_id"], ev_data["owasp_mapping"])
                     await websocket.send_json(event)
             except Exception as e:
                 await websocket.send_json({"type": "error", "message": str(e)})

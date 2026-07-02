@@ -2,15 +2,16 @@ import { useState } from "react";
 import { ChatPanel } from "../components/ChatPanel/ChatPanel";
 import { TestCasePanel } from "../components/TestCasePanel/TestCasePanel";
 import { ScriptsPanel } from "../components/ScriptsPanel/ScriptsPanel";
+import { OwaspCoverage } from "../components/OwaspCoverage/OwaspCoverage";
 import { useAgentChat } from "../hooks/useAgentChat";
 
 const SESSION_ID = crypto.randomUUID();
 const PROJECT_ID = "proj-001";
 
-type RightPanel = "test-cases" | "scripts";
+type RightPanel = "test-cases" | "scripts" | "owasp";
 
 export default function Dashboard() {
-  const { messages, activeAgent, sendMessage, testCases, releaseScore, scripts } = useAgentChat(SESSION_ID, PROJECT_ID);
+  const { messages, activeAgent, sendMessage, testCases, releaseScore, scripts, findings } = useAgentChat(SESSION_ID, PROJECT_ID);
   const [rightPanel, setRightPanel] = useState<RightPanel>("test-cases");
 
   return (
@@ -44,14 +45,20 @@ export default function Dashboard() {
             >
               Scripts ({scripts.length})
             </button>
+            <button
+              onClick={() => setRightPanel("owasp")}
+              className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
+                rightPanel === "owasp" ? "bg-slate-800 text-white" : "bg-white border text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              OWASP ({findings.length})
+            </button>
           </div>
 
           <div className="flex-1 min-h-0">
-            {rightPanel === "test-cases" ? (
-              <TestCasePanel testCases={testCases} releaseScore={releaseScore} />
-            ) : (
-              <ScriptsPanel scripts={scripts} />
-            )}
+            {rightPanel === "test-cases" && <TestCasePanel testCases={testCases} releaseScore={releaseScore} />}
+            {rightPanel === "scripts" && <ScriptsPanel scripts={scripts} />}
+            {rightPanel === "owasp" && <OwaspCoverage findings={findings} />}
           </div>
         </div>
       </main>

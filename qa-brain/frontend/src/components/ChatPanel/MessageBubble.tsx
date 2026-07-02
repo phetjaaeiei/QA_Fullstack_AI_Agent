@@ -12,6 +12,18 @@ export function MessageBubble({ message }: { message: Message }) {
         }`}
       >
         {message.content}
+        {message.link && (
+          <div className="mt-2">
+            <a
+              href={message.link.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block text-xs font-medium text-blue-600 hover:text-blue-800 underline"
+            >
+              {message.link.label} ↗
+            </a>
+          </div>
+        )}
       </div>
     </div>
   );

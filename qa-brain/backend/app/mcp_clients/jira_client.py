@@ -73,5 +73,28 @@ class JiraClient:
     async def get_sprint_stories(self, sprint_id: str) -> list:
         return await self.search_stories(f"sprint = {sprint_id} ORDER BY created ASC")
 
+    async def create_issue(
+        self, project_key: str, summary: str, description: str,
+        issue_type: str = "Bug", labels: list = None,
+    ) -> dict:
+        response = await self._http.post(
+            "/rest/api/3/issue",
+            json={
+                "fields": {
+                    "project": {"key": project_key},
+                    "summary": summary,
+                    "description": {"type": "doc", "version": 1, "content": [
+                        {"type": "paragraph", "content": [{"type": "text", "text": description}]}
+                    ]},
+                    "issuetype": {"name": issue_type},
+                    "labels": labels or [],
+                }
+            },
+        )
+        response.raise_for_status()
+        data = response.json()
+        base_url = str(self._http.base_url).rstrip('/')
+        return {"jira_id": data["key"], "url": f"{base_url}/browse/{data['key']}"}
+
     async def close(self):
         await self._http.aclose()

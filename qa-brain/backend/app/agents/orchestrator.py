@@ -2,6 +2,7 @@ import re
 from typing import AsyncGenerator
 from app.agents.manual_qa import ManualQAAgent
 from app.agents.automation_qa import AutomationQAAgent
+from app.agents.security_qa import SecurityQAAgent
 
 STORY_ID_PATTERN = re.compile(r"\b([A-Z]+-\d+)\b")
 SPRINT_ID_PATTERN = re.compile(r"\bSPRINT[-\s]?(\d+)\b", re.IGNORECASE)
@@ -14,6 +15,7 @@ class QAOrchestrator:
     def __init__(self):
         self._manual_qa = ManualQAAgent()
         self._automation_qa = AutomationQAAgent()
+        self._security_qa = SecurityQAAgent()
 
     def _classify_intent(self, message: str) -> dict:
         msg = message.lower()
@@ -21,6 +23,22 @@ class QAOrchestrator:
         sprint_match = SPRINT_ID_PATTERN.search(message)
         sprint_id = f"SPRINT-{sprint_match.group(1)}" if sprint_match else None
 
+        if any(w in msg for w in ["owasp test", "owasp coverage test", "generate owasp"]):
+            return {"action": "generate_owasp_test_cases", "story_ids": story_ids}
+        if any(w in msg for w in ["map story to owasp", "owasp map", "owasp mapping", "owasp risk"]):
+            return {"action": "map_story_to_owasp", "story_ids": story_ids}
+        if any(w in msg for w in ["rbac", "role-based access", "role matrix", "access matrix"]):
+            return {"action": "generate_rbac_matrix", "requirements": message}
+        if any(w in msg for w in ["api security checklist", "security checklist"]):
+            return {"action": "generate_api_security_checklist", "requirements": message}
+        if any(w in msg for w in ["triage vulnerabilit", "scanner result", "zap result"]):
+            code_match = CODE_BLOCK_PATTERN.search(message)
+            scan_json = code_match.group(1).strip() if code_match else ""
+            return {"action": "triage_vulnerabilities", "scan_json": scan_json}
+        if any(w in msg for w in ["security defect", "write defect", "cvss"]):
+            return {"action": "write_security_defect", "finding": message}
+        if any(w in msg for w in ["owasp dashboard", "security dashboard", "owasp coverage"]):
+            return {"action": "build_owasp_dashboard", "sprint_id": sprint_id}
         if any(w in msg for w in ["analyze", "ambigui", "missing", "risk"]):
             return {"action": "analyze_story", "story_ids": story_ids}
         if any(w in msg for w in ["map script", "script traceability"]):
@@ -157,6 +175,59 @@ class QAOrchestrator:
             test_data = await self._automation_qa.generate_test_data(requirements)
             yield {"type": "agent_complete", "agent": "automation_qa", "message": f"Generated {len(test_data)} test data set(s)"}
             yield {"type": "orchestrator_done", "data": {"test_data": test_data}}
+
+        elif action == "generate_owasp_test_cases":
+            story_ids = intent.get("story_ids", [])
+            for story_id in story_ids:
+                yield {"type": "agent_start", "agent": "security_qa", "message": f"Generating OWASP test cases for {story_id}..."}
+                owasp_test_cases = await self._security_qa.generate_owasp_test_cases(story_id)
+                yield {"type": "agent_complete", "agent": "security_qa", "message": f"Generated {len(owasp_test_cases)} OWASP test cases for {story_id}"}
+                yield {"type": "orchestrator_done", "data": {"owasp_test_cases": owasp_test_cases, "story_id": story_id}}
+
+        elif action == "map_story_to_owasp":
+            story_ids = intent.get("story_ids", [])
+            for story_id in story_ids:
+                yield {"type": "agent_start", "agent": "security_qa", "message": f"Mapping {story_id} to OWASP categories..."}
+                owasp_mapping = await self._security_qa.map_story_to_owasp(story_id)
+                yield {"type": "agent_complete", "agent": "security_qa", "message": f"OWASP mapping complete for {story_id}"}
+                yield {"type": "orchestrator_done", "data": {"owasp_mapping": owasp_mapping, "story_id": story_id}}
+
+        elif action == "generate_rbac_matrix":
+            requirements = intent.get("requirements", "")
+            yield {"type": "agent_start", "agent": "security_qa", "message": "Generating RBAC test matrix..."}
+            rbac_matrix = await self._security_qa.generate_rbac_matrix(roles=[], feature_description=requirements)
+            yield {"type": "agent_complete", "agent": "security_qa", "message": "RBAC test matrix ready"}
+            yield {"type": "orchestrator_done", "data": {"rbac_matrix": rbac_matrix}}
+
+        elif action == "generate_api_security_checklist":
+            requirements = intent.get("requirements", "")
+            url_match = URL_PATTERN.search(requirements)
+            spec_url = url_match.group(0) if url_match else requirements
+            yield {"type": "agent_start", "agent": "security_qa", "message": "Generating API security checklist..."}
+            checklist = await self._security_qa.generate_api_security_checklist(spec_url)
+            yield {"type": "agent_complete", "agent": "security_qa", "message": "API security checklist ready"}
+            yield {"type": "orchestrator_done", "data": {"api_security_checklist": checklist}}
+
+        elif action == "triage_vulnerabilities":
+            scan_json = intent.get("scan_json", "")
+            yield {"type": "agent_start", "agent": "security_qa", "message": "Triaging vulnerability scan results..."}
+            triage = await self._security_qa.triage_vulnerabilities(scan_json)
+            yield {"type": "agent_complete", "agent": "security_qa", "message": "Vulnerability triage complete"}
+            yield {"type": "orchestrator_done", "data": {"triage": triage}}
+
+        elif action == "write_security_defect":
+            finding = intent.get("finding", "")
+            yield {"type": "agent_start", "agent": "security_qa", "message": "Writing security defect..."}
+            security_defect = await self._security_qa.write_security_defect(finding)
+            yield {"type": "agent_complete", "agent": "security_qa", "message": f"Security defect created: {security_defect.get('jira_id', 'unknown')}"}
+            yield {"type": "orchestrator_done", "data": {"security_defect": security_defect}}
+
+        elif action == "build_owasp_dashboard":
+            sprint_id = intent.get("sprint_id") or "SPRINT-1"
+            yield {"type": "agent_start", "agent": "security_qa", "message": f"Building OWASP dashboard for {sprint_id}..."}
+            owasp_dashboard = await self._security_qa.build_owasp_dashboard(sprint_id)
+            yield {"type": "agent_complete", "agent": "security_qa", "message": "OWASP dashboard ready"}
+            yield {"type": "orchestrator_done", "data": {"owasp_dashboard": owasp_dashboard}}
 
         else:
             yield {

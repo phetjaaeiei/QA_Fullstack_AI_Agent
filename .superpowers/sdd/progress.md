@@ -1,79 +1,86 @@
-# Automation QA Agent — Backend — Progress Ledger
+# Security QA Agent — Backend — Progress Ledger
 
-Branch: feature/automation-qa-agent
-Worktree: .worktrees/automation-qa-agent
-Plan: docs/superpowers/plans/2026-07-02-automation-qa-agent-backend.md
+Branch: worktree-security-qa-agent
+Worktree: .claude/worktrees/security-qa-agent
+Plan: docs/superpowers/plans/2026-07-02-security-qa-agent-backend.md
 
 ## Tasks
 
-- [x] Task 1: AutomationScript Database Model & Migration (commits ca6d296..3eecaf9, review clean)
-- [x] Task 2: GitHub HTTP Client (commits 739c3b9..db7e5c0, review clean)
-- [x] Task 3: AutomationQAAgent — Script Generation & Standardization (commits f6cab13..1a01b9e, review clean; minor: one test deviated harmlessly from brief's literal text)
-- [x] Task 4: AutomationQAAgent — Self-Healing Locators (commits 2cd33a6..09bf874, review clean)
-- [x] Task 5: AutomationQAAgent — CI Failure Classification & Auto-Fix (commits 0fb8235..8f82f95, review clean)
-- [x] Task 6: AutomationQAAgent — Test Data Generation & Traceability Mapping (commits 95e0484..3cf7a1a, review clean; class complete, 7/7 tools)
-- [x] Task 7: Orchestrator Routing (commits e62f39b..33528af, review clean; caught+fixed a real plan bug mid-task: failure-intent keyword list didn't match the plan's own test message, added "why did this fail")
-- [x] Task 8: Persistence & REST API (commits c2a62fb..bd0f8bc, review clean; minor: new REST test only asserts `framework`, not `health_status`/`content`/`ci_run_url`)
+- [x] Task 1: SecurityFinding Database Model & Migration (commits aea1fe5..7c56ff4, review clean; minor: created_at uses datetime.utcnow, matching pre-existing Story/TestCase pattern, not a regression)
+- [x] Task 2: JiraClient.create_issue() (commits e4ec94b..83a12c9, review clean after fix; fixed Important: base_url trailing-slash could double-slash the returned Jira URL)
+- [x] Task 3: SecurityQAAgent — OWASP Test Case Generation & Story Mapping (commits 82bdb61..e17e186, review clean; minor: mock-mode tests don't assert zero real API calls, inherited from the brief's own test code, not a defect)
+- [x] Task 4: SecurityQAAgent — RBAC Matrix & API Security Checklist (commits 94bb2aa..5d71a7c, review clean; minor plan-mandated: empty `roles` list would IndexError in mock branch, matches brief's literal code, no test exercises it)
+- [x] Task 5: SecurityQAAgent — Vulnerability Triage & Security Defect Writing (commits 77ce1ed..ed9a15f, review clean; reviewer independently traced control flow and confirmed mock mode never calls JiraClient.create_issue)
+- [x] Task 6: SecurityQAAgent — OWASP Coverage Dashboard (commits 0275f5a..44f629d, review clean; reviewer hand-verified coverage % arithmetic matches test assertions exactly; SecurityQAAgent's 7/7 tools now complete)
+- [x] Task 7: Orchestrator Routing (commits a8a518a..4b891e7, review clean; reviewer traced full if/elif ordering directly, confirmed 7 security rules precede generic map/trace rule with no gap, both collision tests verified genuine)
+- [x] Task 8: Persistence & REST API (commits 4d9baa4..9d9d2a7, review clean; reviewer confirmed the 5 one-shot outputs are correctly never persisted, cross-checked orchestrator events never carry story_id for them)
 
 ## All 8 tasks complete. Final whole-branch review done (Opus). Ready to merge.
 
-Final review (merge-base edf1575..dab1595): traced both end-to-end flows
-(script generation → persistence → REST read; CI-failure classification)
-and confirmed they work coherently across all 8 tasks. No Critical issues.
+Final review (merge-base 1772bb5..7a61c9c): independently re-ran the full backend
+suite (70 passed, 0 failed), traced the mock-mode/real-Jira boundary end-to-end
+through the orchestrator (no reachable bypass), and exercised the real
+`_classify_intent()` against 17 phrases confirming all three agents' keyword
+routing coexists correctly (no regressions to Manual QA or Automation QA
+routing). No Critical issues.
 
-- Fixed (commit b81353c, re-review confirmed ✅): `test_generate_script_from_spec_returns_script`
-  didn't patch `mock_mode=False`, so with the repo's current `MOCK_MODE=true`
-  it passed vacuously without exercising the real Claude-call branch.
-- Minor, accepted as non-blocking:
-  - `map_script_traceability` doesn't persist its mapping to the DB yet
-    (design spec literally says "persists... to DB"); deferred to the
-    frontend/traceability-graph phase since the mapping is advisory and no
-    data is lost.
-  - `test_get_story_scripts_returns_list` (Task 8) only asserts `framework`,
-    not `health_status`/`content`/`ci_run_url`.
-  - One Task 3 test deviated harmlessly from the brief's literal snippet
-    (necessary AsyncMock/mock_mode correction, not a defect).
-  - Prompt-injection surface via unescaped external input (page HTML, CI
-    JSON) in `automation_qa.py` — matches the pre-existing `ManualQAAgent`
-    convention, flagged for awareness ahead of a real `ANTHROPIC_API_KEY`.
+- Important, accepted as non-blocking per user decision: orchestrator's
+  `generate_rbac_matrix` call always passes `roles=[]` — role names are never
+  extracted from the chat message, so in real (non-mock) mode the tool infers
+  roles entirely from freeform `feature_description` text. This is a
+  plan-mandated simplification (the plan explicitly chose not to invent a
+  role-parsing regex), not an implementer defect. User chose to accept as
+  known limitation/tech debt rather than fix now.
+- Minor, accepted as non-blocking: LLM-returned enum values for
+  `status`/`risk_level` are inserted into `security_findings` without
+  validation — an out-of-enum value would abort the persistence commit
+  (mirrors the pre-existing `_persist_test_cases` trust-the-LLM pattern,
+  not a regression). `write_security_defect` always targets `project_key
+  ="SCRUM"` (fine for single-project demo). Prompt-injection surface via
+  unescaped external input (finding text, scan JSON, OpenAPI spec) matches
+  the pre-existing `ManualQAAgent`/`AutomationQAAgent` convention, flagged
+  for awareness ahead of a real `ANTHROPIC_API_KEY`.
 
-Backend PR opened: https://github.com/phetjaaeiei/QA_Fullstack_AI_Agent/pull/2
-(pushed and left open per user's choice of "push and create a PR")
+## Prior ledger (Automation QA Agent backend+frontend) is preserved in git history at this file's earlier revision — reset here per the same convention used when that plan started (commit ca6d296).
 
 ---
 
 # Frontend — Progress Ledger (same branch/PR, added on)
 
-Plan: docs/superpowers/plans/2026-07-02-automation-qa-agent-frontend.md
+Plan: docs/superpowers/plans/2026-07-02-security-qa-agent-frontend.md
 
-Prerequisite fix (commit ec85d0e): frontend `npm run build` had never been
-run — missing `vite-env.d.ts`, missing `@types/node`, tsconfig `lib` too old
-for `replaceAll`. Fixed before starting frontend tasks since every task step
-verifies via `npm run build`.
+Prerequisite: `npm install` run in this worktree (node_modules didn't exist, fresh worktree). `npm run build` verified clean baseline before starting.
 
 ## Tasks
 
-- [x] Task 1: Types & API Client for Automation Scripts (commits 178b462..ca565e9, review clean)
-- [x] Task 2: Chat Feedback for Automation Actions (commits a13c45d..1cec66a, review clean; minor: one harmless redundant type cast matching pre-existing style)
-- [x] Task 3: ScriptsPanel Component (commits 4283ee9..d40060f, review clean)
-- [x] Task 4: Wire ScriptsPanel into Dashboard (commits 706832a..802bdd7, review clean; minor: inactive-tab styling cosmetically diverges from TestCasePanel's pill style; browser click-through skipped honestly, no browser tool available — curl smoke test only)
+- [x] Task 1: Types & API Client for Security Findings (commits c6bd0da..fdc3f86, review clean; reviewer independently cross-checked all 7 AgentEvent type shapes against real backend payloads, all matched exactly)
+- [x] Task 2: Chat Feedback for Security QA Actions (commits 489e6eb..7a5bdaa, review clean; reviewer hand-traced the empty-roles RBAC fallback and confirmed it never renders blank)
+- [x] Task 3: Render Clickable Links in Chat Messages (commits 971b310..85a36e0, review clean)
+- [x] Task 4: CoverageLegend Component (commits 9049707..9d8b4e9, review clean)
+- [x] Task 5: CoverageCell Component (commits aff49be..e2fec02, review clean)
+- [x] Task 6: OwaspCoverage Panel Component (commits b5a477e..5827915, review clean; reviewer verified CoverageCell/CoverageLegend prop usage against their real Task 4/5 signatures)
+- [x] Task 7: Wire OWASP Tab into Dashboard (commits a0258a4..dee60da, review clean; reviewer verified cross-task interfaces against real Task 2/6 source and confirmed existing Test Cases/Scripts tab behavior is byte-identical, no regression)
 
-## All 4 frontend tasks complete. Final whole-batch review done (Opus). Ready to merge.
+## All 7 frontend tasks complete. Final whole-batch review done (Opus). Ready to merge.
 
-Final review (f294285..4634b31): independently verified the full WebSocket
-data flow against the actual backend source (orchestrator.py/automation_qa.py),
-confirmed `npm run build` passes clean, confirmed XSS-safe rendering (no
-`dangerouslySetInnerHTML`), confirmed zero regression to the Manual QA Agent
-flow (TestCasePanel untouched, pre-existing useAgentChat handlers untouched).
-No Critical or Important issues. Minor notes (all pre-existing or accepted
-by design, no action needed): a pre-existing `useEffect` dep-array omission
-unrelated to this batch; code-fence markdown renders as literal text in chat
-(no markdown renderer exists yet); socket-created scripts default to
-`health_status: "healthy"` until a page refresh would pull real values via
-`getStoryScripts`.
+Final review (bca2b5f..28e7f43): independently re-verified all 7 new
+`AgentEvent["data"]` type shapes against the real backend source
+(orchestrator.py/security_qa.py mock+real return dicts), confirmed
+`npm run build` passes clean, confirmed no `dangerouslySetInnerHTML` and no
+new npm dependencies, and traced `Message.link` end-to-end from Task 1's
+type through Task 2's wiring to Task 3's render. No Critical or Important
+issues.
 
-Next: push to update PR #2 (same branch, already open).
+Minor notes, no action needed for this phase:
+- The empty-roles RBAC fallback (Task 2) is only fully effective on a real
+  Claude API call — in the current MOCK_MODE demo, `generate_rbac_matrix`'s
+  mock branch produces an empty `access` dict too, so rows render with just
+  the boundary label and no per-role data. Not blank, not a crash — will
+  resolve itself once a real ANTHROPIC_API_KEY lands.
+- OwaspCoverage's empty-state hint text says "PROJ-123" but the working demo
+  project is "SCRUM" (per project memory) — copy nit.
+- Page-refresh persistence gap (`getStorySecurityFindings` written but never
+  called) was already flagged as a known, documented limitation during
+  planning — reconfirmed here, not a new finding.
 
-No frontend test framework exists in this project (Phase 1 shipped without
-one) — task reviewers verify via `npm run build` (TypeScript) plus reading
-code, not automated test evidence.
+Next: push to update PR #3 (same branch, already open).
