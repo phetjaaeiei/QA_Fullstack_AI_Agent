@@ -56,7 +56,9 @@ verifies via `npm run build`.
 - [x] Task 1: Types & API Client for Automation Scripts (commits 178b462..ca565e9, review clean)
 - [x] Task 2: Chat Feedback for Automation Actions (commits a13c45d..1cec66a, review clean; minor: one harmless redundant type cast matching pre-existing style)
 - [x] Task 3: ScriptsPanel Component (commits 4283ee9..d40060f, review clean)
-- [ ] Task 4: Wire ScriptsPanel into Dashboard
+- [x] Task 4: Wire ScriptsPanel into Dashboard (commits 706832a..802bdd7, review clean; minor: inactive-tab styling cosmetically diverges from TestCasePanel's pill style; browser click-through skipped honestly, no browser tool available — curl smoke test only)
+
+## All 4 frontend tasks complete. Next: final review for this batch, then re-push.
 
 No frontend test framework exists in this project (Phase 1 shipped without
 one) — task reviewers verify via `npm run build` (TypeScript) plus reading
