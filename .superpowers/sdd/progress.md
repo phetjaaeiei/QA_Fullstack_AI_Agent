@@ -6,7 +6,7 @@ Plan: docs/superpowers/plans/2026-07-02-security-qa-agent-backend.md
 
 ## Tasks
 
-- [ ] Task 1: SecurityFinding Database Model & Migration
+- [x] Task 1: SecurityFinding Database Model & Migration (commits aea1fe5..7c56ff4, review clean; minor: created_at uses datetime.utcnow, matching pre-existing Story/TestCase pattern, not a regression)
 - [ ] Task 2: JiraClient.create_issue()
 - [ ] Task 3: SecurityQAAgent — OWASP Test Case Generation & Story Mapping
 - [ ] Task 4: SecurityQAAgent — RBAC Matrix & API Security Checklist
