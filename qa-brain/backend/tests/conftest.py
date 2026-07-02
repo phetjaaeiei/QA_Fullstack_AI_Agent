@@ -39,6 +39,7 @@ async def db_session(test_engine) -> AsyncSession:
         from sqlalchemy import text
         async with session_factory() as cleanup:
             await cleanup.execute(text("DELETE FROM automation_scripts"))
+            await cleanup.execute(text("DELETE FROM security_findings"))
             await cleanup.execute(text("DELETE FROM test_cases"))
             await cleanup.execute(text("DELETE FROM stories"))
             await cleanup.execute(text("DELETE FROM projects"))
