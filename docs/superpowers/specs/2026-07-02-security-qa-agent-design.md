@@ -15,7 +15,7 @@
 | `generate_owasp_test_cases` | Story ID | Test cases covering relevant OWASP Top 10 categories | Persists as `TestCase` rows with `type="security"` — this enum value already exists in the Phase 1 schema, unused until now |
 | `map_story_to_owasp` | Story ID(s) | Story → OWASP category risk/coverage mapping | Persists to the new `security_findings` table (§6) |
 | `generate_rbac_matrix` | Roles (list) + feature description, both freeform from the chat message | Role × access-boundary test matrix | Pure LLM generation, no external I/O or persistence — same shape as `AutomationQAAgent.generate_test_data` |
-| `generate_api_security_checklist` | OpenAPI spec (fetched via the existing `OpenApiClient` from Phase 1) | Broken Access / Injection / Auth checklist | Reuses `app/mcp_clients/openapi_client.py` as-is — no new client |
+| `generate_api_security_checklist` | OpenAPI spec (fetched via the existing `OpenAPIClient` from Phase 1) | Broken Access / Injection / Auth checklist | Reuses `app/mcp_clients/openapi_client.py` as-is — no new client |
 | `triage_vulnerabilities` | Scanner results as raw JSON, pasted into chat as a code block | Priority ranking + false-positive filter | No scanner integration exists (confirmed) — input is scanner-agnostic JSON the user pastes/uploads, parsed with the same `CODE_BLOCK_PATTERN` regex the orchestrator already uses for `auto_fix_script` |
 | `write_security_defect` | A vulnerability finding (chat message, typically `triage_vulnerabilities` output pasted back) | Report + Impact + CVSS score + Evidence, **and a real Jira ticket** | Requires a new `JiraClient.create_issue()` write method (§2) — the existing client is read-only |
 | `build_owasp_dashboard` | Sprint ID | OWASP coverage % per category + traceability | Pure DB aggregation over `security_findings` + `test_cases` (`type="security"`), plus a Claude-generated gap/recommendation summary — mirrors `ManualQAAgent.score_release_readiness` |
@@ -61,7 +61,7 @@ Jira Cloud's issue-create endpoint requires Atlassian Document Format for `descr
 ## 3. `SecurityQAAgent`
 
 `app/agents/security_qa.py`, structurally identical to `ManualQAAgent`/`AutomationQAAgent`:
-- `__init__` builds `self._client` (`AsyncAnthropic`), `self._jira` (`JiraClient`), `self._openapi` (`OpenApiClient`), `self._mock = settings.mock_mode`, `self._model = "claude-opus-4-8"`.
+- `__init__` builds `self._client` (`AsyncAnthropic`), `self._jira` (`JiraClient`), `self._openapi` (`OpenAPIClient`), `self._mock = settings.mock_mode`, `self._model = "claude-opus-4-8"`.
 - One async method per tool in §1.
 - Every method checks `self._mock` first and returns a `[MOCK]`-labeled fixture, following the exact pattern already implemented in `ManualQAAgent`/`AutomationQAAgent`. `write_security_defect` in mock mode returns a fake ticket (e.g. `{"jira_id": "[MOCK] SCRUM-999", "url": "[MOCK]"}`) **without calling `JiraClient.create_issue()`** — this is the one tool where mock mode isn't just about avoiding LLM cost, it's about not polluting the real Jira project with fake tickets during demos.
 
