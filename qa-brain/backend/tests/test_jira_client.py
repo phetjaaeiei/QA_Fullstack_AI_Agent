@@ -76,7 +76,9 @@ async def test_create_issue_returns_normalized_dict():
         )
 
     assert result["jira_id"] == "SCRUM-999"
-    assert "SCRUM-999" in result["url"]
+    # Mock base_url is from settings.jira_base_url; verify exact URL structure to catch double-slash regression
+    expected_url = f"{str(client._http.base_url).rstrip('/')}/browse/SCRUM-999"
+    assert result["url"] == expected_url
 
     call_kwargs = mock_post.call_args
     assert call_kwargs.args[0] == "/rest/api/3/issue"

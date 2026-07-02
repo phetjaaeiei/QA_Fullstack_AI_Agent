@@ -93,7 +93,8 @@ class JiraClient:
         )
         response.raise_for_status()
         data = response.json()
-        return {"jira_id": data["key"], "url": f"{self._http.base_url}/browse/{data['key']}"}
+        base_url = str(self._http.base_url).rstrip('/')
+        return {"jira_id": data["key"], "url": f"{base_url}/browse/{data['key']}"}
 
     async def close(self):
         await self._http.aclose()
