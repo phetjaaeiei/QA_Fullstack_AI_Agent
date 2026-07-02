@@ -353,3 +353,55 @@ Return JSON only:
             "jira_id": issue["jira_id"],
             "url": issue["url"],
         }
+
+    async def build_owasp_dashboard(self, sprint_id: str) -> dict:
+        if self._mock:
+            return {
+                "sprint_id": sprint_id,
+                "coverage_by_category": {cat: 50 for cat in OWASP_CATEGORIES[:3]},
+                "summary": f"[MOCK] Coverage summary for {sprint_id} — partial OWASP coverage, injection testing needs attention",
+            }
+
+        stories = await self._jira.get_sprint_stories(sprint_id)
+
+        category_totals: dict = {}
+        category_covered: dict = {}
+        for story in stories:
+            findings = await self.map_story_to_owasp(story["jira_id"])
+            for finding in findings:
+                category = finding["owasp_category"]
+                category_totals[category] = category_totals.get(category, 0) + 1
+                if finding["status"] == "covered":
+                    category_covered[category] = category_covered.get(category, 0) + 1
+
+        coverage_by_category = {
+            category: round((category_covered.get(category, 0) / total) * 100)
+            for category, total in category_totals.items()
+        }
+
+        response = await self._client.messages.create(
+            model=self._model,
+            max_tokens=1500,
+            system=SYSTEM_PROMPT,
+            messages=[{
+                "role": "user",
+                "content": f"""Summarize OWASP coverage gaps and give recommendations for this sprint.
+
+Sprint: {sprint_id}
+Stories assessed: {len(stories)}
+Coverage by category (%): {json.dumps(coverage_by_category, indent=2)}
+
+Return JSON only:
+{{
+  "summary": "a short paragraph identifying the biggest gaps and what to prioritize next"
+}}"""
+            }]
+        )
+
+        summary_data = _parse_json(response.content[0].text)
+
+        return {
+            "sprint_id": sprint_id,
+            "coverage_by_category": coverage_by_category,
+            "summary": summary_data["summary"],
+        }

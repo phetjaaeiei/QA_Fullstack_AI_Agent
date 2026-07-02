@@ -273,3 +273,49 @@ async def test_write_security_defect_mock_mode_does_not_call_create_issue():
     assert result["url"] == "[MOCK]"
     assert "report" in result
     assert "cvss_score" in result
+
+
+MOCK_SPRINT_STORIES = [
+    {"jira_id": "SCRUM-300", "title": "User can upload a profile picture", "description": "...", "status": "Done"},
+    {"jira_id": "SCRUM-301", "title": "Admin can delete any user", "description": "...", "status": "Done"},
+]
+
+MOCK_DASHBOARD_SUMMARY = {
+    "summary": "Access control coverage is strong, but injection testing is inconsistent across stories in this sprint.",
+}
+
+
+@pytest.mark.asyncio
+async def test_build_owasp_dashboard_returns_coverage_and_summary():
+    with patch("app.agents.security_qa.settings.mock_mode", False):
+        agent = SecurityQAAgent()
+        mock_mapping_300 = [
+            {"owasp_category": "A01:2021-Broken Access Control", "status": "covered", "risk_level": "low", "notes": "ok"},
+            {"owasp_category": "A03:2021-Injection", "status": "gap", "risk_level": "high", "notes": "no validation"},
+        ]
+        mock_mapping_301 = [
+            {"owasp_category": "A01:2021-Broken Access Control", "status": "covered", "risk_level": "low", "notes": "ok"},
+        ]
+        with patch.object(agent._jira, "get_sprint_stories", new_callable=AsyncMock, return_value=MOCK_SPRINT_STORIES), \
+             patch.object(agent, "map_story_to_owasp", new_callable=AsyncMock, side_effect=[mock_mapping_300, mock_mapping_301]), \
+             patch.object(agent._client.messages, "create", new_callable=AsyncMock) as mock_create:
+            mock_create.return_value = MagicMock(
+                content=[MagicMock(text=json.dumps(MOCK_DASHBOARD_SUMMARY))]
+            )
+            result = await agent.build_owasp_dashboard("SPRINT-5")
+
+    assert result["sprint_id"] == "SPRINT-5"
+    assert result["coverage_by_category"]["A01:2021-Broken Access Control"] == 100
+    assert result["coverage_by_category"]["A03:2021-Injection"] == 0
+    assert "summary" in result
+
+
+@pytest.mark.asyncio
+async def test_build_owasp_dashboard_mock_mode_returns_mock_fixture():
+    with patch("app.agents.security_qa.settings.mock_mode", True):
+        agent = SecurityQAAgent()
+        result = await agent.build_owasp_dashboard("SPRINT-5")
+
+    assert result["sprint_id"] == "SPRINT-5"
+    assert "coverage_by_category" in result
+    assert result["summary"].startswith("[MOCK]")
