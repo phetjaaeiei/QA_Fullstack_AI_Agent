@@ -264,3 +264,92 @@ Return JSON only:
         )
 
         return _parse_json(response.content[0].text)
+
+    async def triage_vulnerabilities(self, scan_json: str) -> dict:
+        if self._mock:
+            return {
+                "prioritized": [
+                    {"finding": "[MOCK] Highest-severity finding from the pasted scan output", "severity": "high", "cvss_estimate": 7.5},
+                ],
+                "false_positives": ["[MOCK] Low-signal finding likely already mitigated"],
+            }
+
+        response = await self._client.messages.create(
+            model=self._model,
+            max_tokens=3000,
+            system=SYSTEM_PROMPT,
+            messages=[{
+                "role": "user",
+                "content": f"""Triage this vulnerability scanner output. The JSON structure is scanner-agnostic — infer field meaning from context.
+
+Scanner output:
+{scan_json}
+
+Rank real findings by priority and flag likely false positives.
+Return JSON only:
+{{
+  "prioritized": [
+    {{"finding": "description of the finding", "severity": "critical|high|medium|low", "cvss_estimate": 0.0}}
+  ],
+  "false_positives": ["description of a finding that is likely a false positive, and why"]
+}}"""
+            }]
+        )
+
+        return _parse_json(response.content[0].text)
+
+    async def write_security_defect(self, finding: str, project_key: str = "SCRUM") -> dict:
+        if self._mock:
+            return {
+                "report": f"[MOCK] Security defect report for: {finding[:80]}",
+                "impact": "[MOCK] Potential unauthorized data access or system compromise",
+                "cvss_score": 7.5,
+                "evidence": f"[MOCK] Evidence extracted from: {finding[:80]}",
+                "jira_id": "[MOCK] SCRUM-999",
+                "url": "[MOCK]",
+            }
+
+        response = await self._client.messages.create(
+            model=self._model,
+            max_tokens=2000,
+            system=SYSTEM_PROMPT,
+            messages=[{
+                "role": "user",
+                "content": f"""Turn this vulnerability finding into a structured security defect report.
+
+Finding:
+{finding}
+
+Return JSON only:
+{{
+  "report": "concise defect title/summary",
+  "impact": "what an attacker could achieve by exploiting this",
+  "cvss_score": 0.0,
+  "evidence": "the specific evidence (payload, request, response) demonstrating the vulnerability"
+}}"""
+            }]
+        )
+
+        analysis = _parse_json(response.content[0].text)
+
+        description = (
+            f"Impact: {analysis['impact']}\n\n"
+            f"CVSS Score: {analysis['cvss_score']}\n\n"
+            f"Evidence: {analysis['evidence']}"
+        )
+        issue = await self._jira.create_issue(
+            project_key=project_key,
+            summary=analysis["report"],
+            description=description,
+            issue_type="Bug",
+            labels=["security"],
+        )
+
+        return {
+            "report": analysis["report"],
+            "impact": analysis["impact"],
+            "cvss_score": analysis["cvss_score"],
+            "evidence": analysis["evidence"],
+            "jira_id": issue["jira_id"],
+            "url": issue["url"],
+        }

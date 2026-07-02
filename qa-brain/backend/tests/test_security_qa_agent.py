@@ -184,3 +184,92 @@ async def test_generate_api_security_checklist_mock_mode_returns_mock_fixture():
     assert result["broken_access"][0].startswith("[MOCK]")
     assert "injection" in result
     assert "auth" in result
+
+
+MOCK_SCAN_JSON = json.dumps({
+    "alerts": [
+        {"name": "SQL Injection", "risk": "High", "url": "https://app.example.com/login"},
+        {"name": "Missing X-Frame-Options Header", "risk": "Low", "url": "https://app.example.com/"},
+    ]
+})
+
+MOCK_TRIAGE_RESULT = {
+    "prioritized": [
+        {"finding": "SQL Injection at /login", "severity": "critical", "cvss_estimate": 9.8},
+    ],
+    "false_positives": ["Missing X-Frame-Options Header — mitigated by CSP frame-ancestors"],
+}
+
+MOCK_DEFECT_ANALYSIS = {
+    "report": "SQL Injection vulnerability in the login form's email field",
+    "impact": "An unauthenticated attacker can bypass authentication or exfiltrate the user database",
+    "cvss_score": 9.8,
+    "evidence": "Payload `' OR 1=1 --` in the email field returned an authenticated session",
+}
+
+MOCK_CREATE_ISSUE_RESULT = {"jira_id": "SCRUM-501", "url": "https://example.atlassian.net/browse/SCRUM-501"}
+
+
+@pytest.mark.asyncio
+async def test_triage_vulnerabilities_returns_prioritized_and_false_positives():
+    with patch("app.agents.security_qa.settings.mock_mode", False):
+        agent = SecurityQAAgent()
+        with patch.object(agent._client.messages, "create", new_callable=AsyncMock) as mock_create:
+            mock_create.return_value = MagicMock(
+                content=[MagicMock(text=json.dumps(MOCK_TRIAGE_RESULT))]
+            )
+            result = await agent.triage_vulnerabilities(MOCK_SCAN_JSON)
+
+    assert len(result["prioritized"]) == 1
+    assert result["prioritized"][0]["severity"] == "critical"
+    assert len(result["false_positives"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_triage_vulnerabilities_mock_mode_returns_mock_fixture():
+    with patch("app.agents.security_qa.settings.mock_mode", True):
+        agent = SecurityQAAgent()
+        result = await agent.triage_vulnerabilities(MOCK_SCAN_JSON)
+
+    assert len(result["prioritized"]) >= 1
+    assert result["prioritized"][0]["finding"].startswith("[MOCK]")
+
+
+@pytest.mark.asyncio
+async def test_write_security_defect_creates_real_jira_ticket_when_not_mock():
+    with patch("app.agents.security_qa.settings.mock_mode", False):
+        agent = SecurityQAAgent()
+        with patch.object(agent._client.messages, "create", new_callable=AsyncMock) as mock_create, \
+             patch.object(agent._jira, "create_issue", new_callable=AsyncMock, return_value=MOCK_CREATE_ISSUE_RESULT) as mock_create_issue:
+            mock_create.return_value = MagicMock(
+                content=[MagicMock(text=json.dumps(MOCK_DEFECT_ANALYSIS))]
+            )
+            result = await agent.write_security_defect(
+                "SQL injection found in login form email field, payload ' OR 1=1 --",
+                project_key="SCRUM",
+            )
+
+    mock_create_issue.assert_called_once()
+    assert result["jira_id"] == "SCRUM-501"
+    assert result["url"] == "https://example.atlassian.net/browse/SCRUM-501"
+    assert result["cvss_score"] == 9.8
+    assert "report" in result
+    assert "impact" in result
+    assert "evidence" in result
+
+
+@pytest.mark.asyncio
+async def test_write_security_defect_mock_mode_does_not_call_create_issue():
+    with patch("app.agents.security_qa.settings.mock_mode", True):
+        agent = SecurityQAAgent()
+        with patch.object(agent._jira, "create_issue", new_callable=AsyncMock) as mock_create_issue:
+            result = await agent.write_security_defect(
+                "SQL injection found in login form email field, payload ' OR 1=1 --",
+                project_key="SCRUM",
+            )
+
+    mock_create_issue.assert_not_called()
+    assert result["jira_id"].startswith("[MOCK]")
+    assert result["url"] == "[MOCK]"
+    assert "report" in result
+    assert "cvss_score" in result
