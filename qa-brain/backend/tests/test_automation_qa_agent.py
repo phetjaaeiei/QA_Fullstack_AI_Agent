@@ -206,3 +206,63 @@ async def test_generate_script_from_spec_mock_mode_with_spec_url_skips_jira():
 
     mock_get_story.assert_not_called()
     assert result["framework"] == "playwright"
+
+
+@pytest.mark.asyncio
+async def test_crawl_site_returns_elements_from_page():
+    mock_page = AsyncMock()
+    mock_page.goto = AsyncMock()
+    mock_page.eval_on_selector_all = AsyncMock(return_value=[
+        {"tag": "button", "text": "Submit", "type": "submit", "name": "submit-btn", "href": ""}
+    ])
+    mock_browser = AsyncMock()
+    mock_browser.new_page = AsyncMock(return_value=mock_page)
+    mock_browser.close = AsyncMock()
+
+    mock_chromium = AsyncMock()
+    mock_chromium.launch = AsyncMock(return_value=mock_browser)
+
+    mock_playwright_instance = MagicMock()
+    mock_playwright_instance.chromium = mock_chromium
+
+    mock_cm = MagicMock()
+    mock_cm.__aenter__ = AsyncMock(return_value=mock_playwright_instance)
+    mock_cm.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("app.agents.automation_qa.async_playwright", return_value=mock_cm):
+        agent = AutomationQAAgent()
+        pages = await agent._crawl_site("https://example.com", max_depth=1)
+
+    assert len(pages) == 1
+    assert pages[0]["url"] == "https://example.com"
+    assert pages[0]["elements"][0]["text"] == "Submit"
+    mock_browser.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_crawl_site_follows_same_origin_links_within_depth():
+    mock_page = AsyncMock()
+    mock_page.goto = AsyncMock()
+    mock_page.eval_on_selector_all = AsyncMock(side_effect=[
+        [{"tag": "a", "text": "Checkout", "type": "", "name": "", "href": "/checkout"}],
+        [{"tag": "button", "text": "Pay", "type": "submit", "name": "pay-btn", "href": ""}],
+    ])
+    mock_browser = AsyncMock()
+    mock_browser.new_page = AsyncMock(return_value=mock_page)
+    mock_browser.close = AsyncMock()
+
+    mock_chromium = AsyncMock()
+    mock_chromium.launch = AsyncMock(return_value=mock_browser)
+
+    mock_playwright_instance = MagicMock()
+    mock_playwright_instance.chromium = mock_chromium
+
+    mock_cm = MagicMock()
+    mock_cm.__aenter__ = AsyncMock(return_value=mock_playwright_instance)
+    mock_cm.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("app.agents.automation_qa.async_playwright", return_value=mock_cm):
+        agent = AutomationQAAgent()
+        pages = await agent._crawl_site("https://example.com", max_depth=2)
+
+    assert [p["url"] for p in pages] == ["https://example.com", "https://example.com/checkout"]

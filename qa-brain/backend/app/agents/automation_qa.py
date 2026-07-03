@@ -1,8 +1,10 @@
 import json
 import re as _re
 from pathlib import Path
+from urllib.parse import urljoin, urlparse
 import httpx
 import anthropic
+from playwright.async_api import async_playwright
 from app.config import settings
 from app.mcp_clients.jira_client import JiraClient
 from app.mcp_clients.github_client import GitHubClient
@@ -72,6 +74,47 @@ class AutomationQAAgent:
         self._http = httpx.AsyncClient(timeout=15.0)
         self._model = "claude-sonnet-4-6"
         self._mock = settings.mock_mode
+
+    async def _crawl_site(self, start_url: str, max_depth: int = 2) -> list:
+        visited = set()
+        to_visit = [(start_url, 1)]
+        pages_summary = []
+        origin = urlparse(start_url).netloc
+
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            page = await browser.new_page()
+
+            while to_visit and len(visited) < 5:
+                url, depth = to_visit.pop(0)
+                if url in visited or depth > max_depth:
+                    continue
+                visited.add(url)
+
+                await page.goto(url, wait_until="domcontentloaded", timeout=15000)
+                elements = await page.eval_on_selector_all(
+                    "a[href], button, input, select, textarea, [role=button]",
+                    """els => els.map(el => ({
+                        tag: el.tagName.toLowerCase(),
+                        text: (el.innerText || el.value || '').trim().slice(0, 80),
+                        type: el.getAttribute('type') || '',
+                        name: el.getAttribute('name') || el.id || '',
+                        href: el.getAttribute('href') || '',
+                    }))""",
+                )
+                pages_summary.append({"url": url, "elements": elements})
+
+                if depth < max_depth:
+                    for el in elements:
+                        href = el.get("href") or ""
+                        if href and not href.startswith(("#", "mailto:", "tel:", "javascript:")):
+                            next_url = urljoin(url, href)
+                            if urlparse(next_url).netloc == origin and next_url not in visited:
+                                to_visit.append((next_url, depth + 1))
+
+            await browser.close()
+
+        return pages_summary
 
     async def _fetch_story_title(self, story_id: str) -> str:
         try:
