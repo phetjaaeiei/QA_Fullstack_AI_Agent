@@ -73,6 +73,11 @@ class QAOrchestrator:
             return {"action": "suggest_self_healing", "broken_locator": broken_locator, "page_url": page_url}
         if any(w in msg for w in ["test data", "boundary data"]):
             return {"action": "generate_test_data", "requirements": message}
+        if any(w in msg for w in ["explore", "crawl", "สำรวจ"]):
+            url_match = URL_PATTERN.search(message)
+            url = url_match.group(0) if url_match else ""
+            story_id = story_ids[0] if story_ids else f"EXPLORED-{uuid.uuid4().hex[:8]}"
+            return {"action": "explore_and_generate", "url": url, "story_id": story_id}
         if any(w in msg for w in ["api spec", "openapi", "swagger"]):
             url_match = URL_PATTERN.search(message)
             spec_url = url_match.group(0) if url_match else ""
@@ -144,6 +149,14 @@ class QAOrchestrator:
                     script = await self._automation_qa.generate_script_from_spec(story_id, framework=framework)
                     yield {"type": "agent_complete", "agent": "automation_qa", "message": f"Generated {framework} script for {story_id}"}
                     yield {"type": "orchestrator_done", "data": {"script": script, "story_id": story_id}}
+
+        elif action == "explore_and_generate":
+            url = intent.get("url", "")
+            story_id = intent.get("story_id")
+            yield {"type": "agent_start", "agent": "automation_qa", "message": f"กำลังสำรวจ {url}..."}
+            script = await self._automation_qa.explore_and_generate(url, story_id)
+            yield {"type": "agent_complete", "agent": "automation_qa", "message": "สำรวจและสร้าง script สำเร็จ"}
+            yield {"type": "orchestrator_done", "data": {"script": script, "story_id": story_id}}
 
         elif action == "apply_company_framework":
             script_content = intent.get("script_content", "")

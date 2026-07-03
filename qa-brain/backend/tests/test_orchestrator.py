@@ -381,3 +381,41 @@ async def test_process_generates_script_from_api_spec_url():
     mock_generate.assert_awaited_once()
     call_kwargs = mock_generate.await_args.kwargs
     assert call_kwargs["spec_url"] == "https://example.com/openapi.json"
+
+
+@pytest.mark.asyncio
+async def test_process_explores_and_generates_script_from_url():
+    orchestrator = QAOrchestrator()
+    events = []
+
+    with patch.object(orchestrator._automation_qa, "explore_and_generate", new_callable=AsyncMock,
+                       return_value={"framework": "playwright", "content": "test('explored', async () => {});"}) as mock_explore:
+        async for event in orchestrator.process(
+            message="Explore https://staging.example.com and generate a script",
+            session_id="test-session",
+            project_id="proj-001",
+        ):
+            events.append(event)
+
+    done_event = next(e for e in events if e["type"] == "orchestrator_done")
+    assert done_event["data"]["script"]["framework"] == "playwright"
+    assert done_event["data"]["story_id"].startswith("EXPLORED-")
+    mock_explore.assert_awaited_once_with("https://staging.example.com", done_event["data"]["story_id"])
+
+
+@pytest.mark.asyncio
+async def test_process_explore_uses_story_id_from_message_when_present():
+    orchestrator = QAOrchestrator()
+    events = []
+
+    with patch.object(orchestrator._automation_qa, "explore_and_generate", new_callable=AsyncMock,
+                       return_value={"framework": "playwright", "content": "test('x', async () => {});"}):
+        async for event in orchestrator.process(
+            message="Explore https://staging.example.com for PROJ-500 and generate a script",
+            session_id="test-session",
+            project_id="proj-001",
+        ):
+            events.append(event)
+
+    done_event = next(e for e in events if e["type"] == "orchestrator_done")
+    assert done_event["data"]["story_id"] == "PROJ-500"

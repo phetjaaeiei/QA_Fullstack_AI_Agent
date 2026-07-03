@@ -35,3 +35,21 @@ async def test_get_story_scripts_unknown_story_returns_404(db_session, auth_toke
             headers={"Authorization": f"Bearer {auth_token}"},
         )
     assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_explore_and_generate_shaped_event_persists_via_persist_automation_script(db_session):
+    from app.api.chat import _persist_automation_script
+    from sqlalchemy import select
+    from app.models.automation_script import AutomationScript
+
+    story_id = "EXPLORED-test0001"
+    script = {"framework": "playwright", "content": "test('explored', async () => {});"}
+
+    await _persist_automation_script(db_session, story_id, script)
+
+    result = await db_session.execute(select(AutomationScript))
+    scripts = result.scalars().all()
+    assert len(scripts) == 1
+    assert scripts[0].framework == "playwright"
+    assert scripts[0].content == "test('explored', async () => {});"
