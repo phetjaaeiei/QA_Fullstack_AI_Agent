@@ -240,6 +240,33 @@ async def test_crawl_site_returns_elements_from_page():
 
 
 @pytest.mark.asyncio
+async def test_crawl_site_closes_browser_when_page_goto_raises():
+    mock_page = AsyncMock()
+    mock_page.goto = AsyncMock(side_effect=TimeoutError("Timeout 15000ms exceeded"))
+    mock_page.eval_on_selector_all = AsyncMock(return_value=[])
+    mock_browser = AsyncMock()
+    mock_browser.new_page = AsyncMock(return_value=mock_page)
+    mock_browser.close = AsyncMock()
+
+    mock_chromium = AsyncMock()
+    mock_chromium.launch = AsyncMock(return_value=mock_browser)
+
+    mock_playwright_instance = MagicMock()
+    mock_playwright_instance.chromium = mock_chromium
+
+    mock_cm = MagicMock()
+    mock_cm.__aenter__ = AsyncMock(return_value=mock_playwright_instance)
+    mock_cm.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("app.agents.automation_qa.async_playwright", return_value=mock_cm):
+        agent = AutomationQAAgent()
+        with pytest.raises(TimeoutError):
+            await agent._crawl_site("https://example.com", max_depth=1)
+
+    mock_browser.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_crawl_site_follows_same_origin_links_within_depth():
     mock_page = AsyncMock()
     mock_page.goto = AsyncMock()

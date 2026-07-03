@@ -75,12 +75,16 @@ class QAOrchestrator:
             return {"action": "generate_test_data", "requirements": message}
         if any(w in msg for w in ["explore", "crawl", "สำรวจ"]):
             url_match = URL_PATTERN.search(message)
-            url = url_match.group(0) if url_match else ""
+            if not url_match:
+                return {"action": "unknown"}
+            url = url_match.group(0)
             story_id = story_ids[0] if story_ids else f"EXPLORED-{uuid.uuid4().hex[:8]}"
             return {"action": "explore_and_generate", "url": url, "story_id": story_id}
         if any(w in msg for w in ["api spec", "openapi", "swagger"]):
             url_match = URL_PATTERN.search(message)
-            spec_url = url_match.group(0) if url_match else ""
+            if not url_match:
+                return {"action": "unknown"}
+            spec_url = url_match.group(0)
             framework = "robot" if "robot" in msg else "playwright"
             return {"action": "generate_script_from_spec", "spec_url": spec_url, "framework": framework}
         if any(w in msg for w in ["generate script", "automation script", "playwright", "robot framework"]):

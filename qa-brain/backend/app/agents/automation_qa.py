@@ -85,34 +85,35 @@ class AutomationQAAgent:
             browser = await p.chromium.launch(headless=True)
             page = await browser.new_page()
 
-            while to_visit and len(visited) < 5:
-                url, depth = to_visit.pop(0)
-                if url in visited or depth > max_depth:
-                    continue
-                visited.add(url)
+            try:
+                while to_visit and len(visited) < 5:
+                    url, depth = to_visit.pop(0)
+                    if url in visited or depth > max_depth:
+                        continue
+                    visited.add(url)
 
-                await page.goto(url, wait_until="domcontentloaded", timeout=15000)
-                elements = await page.eval_on_selector_all(
-                    "a[href], button, input, select, textarea, [role=button]",
-                    """els => els.map(el => ({
-                        tag: el.tagName.toLowerCase(),
-                        text: (el.innerText || el.value || '').trim().slice(0, 80),
-                        type: el.getAttribute('type') || '',
-                        name: el.getAttribute('name') || el.id || '',
-                        href: el.getAttribute('href') || '',
-                    }))""",
-                )
-                pages_summary.append({"url": url, "elements": elements})
+                    await page.goto(url, wait_until="domcontentloaded", timeout=15000)
+                    elements = await page.eval_on_selector_all(
+                        "a[href], button, input, select, textarea, [role=button]",
+                        """els => els.map(el => ({
+                            tag: el.tagName.toLowerCase(),
+                            text: (el.innerText || el.value || '').trim().slice(0, 80),
+                            type: el.getAttribute('type') || '',
+                            name: el.getAttribute('name') || el.id || '',
+                            href: el.getAttribute('href') || '',
+                        }))""",
+                    )
+                    pages_summary.append({"url": url, "elements": elements})
 
-                if depth < max_depth:
-                    for el in elements:
-                        href = el.get("href") or ""
-                        if href and not href.startswith(("#", "mailto:", "tel:", "javascript:")):
-                            next_url = urljoin(url, href)
-                            if urlparse(next_url).netloc == origin and next_url not in visited:
-                                to_visit.append((next_url, depth + 1))
-
-            await browser.close()
+                    if depth < max_depth:
+                        for el in elements:
+                            href = el.get("href") or ""
+                            if href and not href.startswith(("#", "mailto:", "tel:", "javascript:")):
+                                next_url = urljoin(url, href)
+                                if urlparse(next_url).netloc == origin and next_url not in visited:
+                                    to_visit.append((next_url, depth + 1))
+            finally:
+                await browser.close()
 
         return pages_summary
 

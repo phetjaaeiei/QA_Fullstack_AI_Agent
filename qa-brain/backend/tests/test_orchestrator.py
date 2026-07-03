@@ -404,6 +404,42 @@ async def test_process_explores_and_generates_script_from_url():
 
 
 @pytest.mark.asyncio
+async def test_process_explore_with_no_url_returns_unknown_fallback():
+    orchestrator = QAOrchestrator()
+    events = []
+
+    with patch.object(orchestrator._automation_qa, "explore_and_generate", new_callable=AsyncMock) as mock_explore:
+        async for event in orchestrator.process(
+            message="explore my app and generate a script",
+            session_id="test-session",
+            project_id="proj-001",
+        ):
+            events.append(event)
+
+    mock_explore.assert_not_called()
+    done_event = next(e for e in events if e["type"] == "orchestrator_done")
+    assert "message" in done_event["data"]
+
+
+@pytest.mark.asyncio
+async def test_process_generate_script_from_spec_with_no_url_returns_unknown_fallback():
+    orchestrator = QAOrchestrator()
+    events = []
+
+    with patch.object(orchestrator._automation_qa, "generate_script_from_spec", new_callable=AsyncMock) as mock_generate:
+        async for event in orchestrator.process(
+            message="generate a script from the openapi spec",
+            session_id="test-session",
+            project_id="proj-001",
+        ):
+            events.append(event)
+
+    mock_generate.assert_not_called()
+    done_event = next(e for e in events if e["type"] == "orchestrator_done")
+    assert "message" in done_event["data"]
+
+
+@pytest.mark.asyncio
 async def test_process_explore_uses_story_id_from_message_when_present():
     orchestrator = QAOrchestrator()
     events = []
