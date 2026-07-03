@@ -166,3 +166,43 @@ async def test_map_script_traceability_returns_mapping():
 
     assert result["story_id"] == "PROJ-200"
     assert result["covers_acceptance_criteria"] is True
+
+
+MOCK_OPENAPI_SPEC = {
+    "paths": {
+        "/users/{id}": {
+            "get": {"summary": "Get user by ID", "parameters": [], "responses": {"200": {}}}
+        }
+    }
+}
+
+
+@pytest.mark.asyncio
+async def test_generate_script_from_spec_with_spec_url_uses_openapi_client():
+    with patch("app.agents.automation_qa.settings.mock_mode", False):
+        agent = AutomationQAAgent()
+        mock_parse_spec = AsyncMock(return_value=MOCK_OPENAPI_SPEC)
+        with patch.object(agent._openapi, "parse_spec", mock_parse_spec), \
+             patch.object(agent._client.messages, "create", new_callable=AsyncMock) as mock_create:
+            mock_create.return_value = MagicMock(
+                content=[MagicMock(text=json.dumps(MOCK_SCRIPT))]
+            )
+            result = await agent.generate_script_from_spec(
+                "API-SPEC-abc123", framework="playwright", spec_url="https://example.com/openapi.json"
+            )
+
+    assert result["framework"] == "playwright"
+    mock_parse_spec.assert_awaited_once_with("https://example.com/openapi.json")
+
+
+@pytest.mark.asyncio
+async def test_generate_script_from_spec_mock_mode_with_spec_url_skips_jira():
+    agent = AutomationQAAgent()
+    agent._mock = True
+    with patch.object(agent._jira, "get_story", new_callable=AsyncMock) as mock_get_story:
+        result = await agent.generate_script_from_spec(
+            "API-SPEC-abc123", framework="playwright", spec_url="https://example.com/openapi.json"
+        )
+
+    mock_get_story.assert_not_called()
+    assert result["framework"] == "playwright"

@@ -6,6 +6,7 @@ import anthropic
 from app.config import settings
 from app.mcp_clients.jira_client import JiraClient
 from app.mcp_clients.github_client import GitHubClient
+from app.mcp_clients.openapi_client import OpenAPIClient
 
 
 def _parse_json(text: str):
@@ -67,6 +68,7 @@ class AutomationQAAgent:
         self._client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
         self._jira = JiraClient()
         self._github = GitHubClient()
+        self._openapi = OpenAPIClient()
         self._http = httpx.AsyncClient(timeout=15.0)
         self._model = "claude-sonnet-4-6"
         self._mock = settings.mock_mode
@@ -78,20 +80,27 @@ class AutomationQAAgent:
         except Exception:
             return ""
 
-    async def generate_script_from_spec(self, story_id: str, framework: str = "playwright") -> dict:
+    async def generate_script_from_spec(self, story_id: str, framework: str = "playwright", spec_url: str = None) -> dict:
         if self._mock:
-            title = await self._fetch_story_title(story_id)
+            title = "" if spec_url else await self._fetch_story_title(story_id)
             return _mock_script(story_id, framework, title)
 
-        story = await self._jira.get_story(story_id)
+        if spec_url:
+            spec = await self._openapi.parse_spec(spec_url)
+            endpoints = self._openapi.list_endpoints(spec)
+            prompt_content = f"""Generate a {framework} test script skeleton covering these API endpoints.
 
-        response = await self._client.messages.create(
-            model=self._model,
-            max_tokens=4000,
-            system=SYSTEM_PROMPT,
-            messages=[{
-                "role": "user",
-                "content": f"""Generate a {framework} test script skeleton for this story.
+Endpoints:
+{json.dumps(endpoints, indent=2)}
+
+Return JSON only:
+{{
+  "framework": "{framework}",
+  "content": "the full script source code, using \\n for newlines"
+}}"""
+        else:
+            story = await self._jira.get_story(story_id)
+            prompt_content = f"""Generate a {framework} test script skeleton for this story.
 
 Story ID: {story['jira_id']}
 Title: {story['title']}
@@ -103,7 +112,12 @@ Return JSON only:
   "framework": "{framework}",
   "content": "the full script source code, using \\n for newlines"
 }}"""
-            }]
+
+        response = await self._client.messages.create(
+            model=self._model,
+            max_tokens=4000,
+            system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": prompt_content}]
         )
 
         return _parse_json(response.content[0].text)
