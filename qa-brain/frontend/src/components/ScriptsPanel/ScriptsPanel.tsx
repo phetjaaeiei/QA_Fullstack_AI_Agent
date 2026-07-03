@@ -12,6 +12,12 @@ const HEALTH_COLORS: Record<string, string> = {
   broken: "text-red-600 font-semibold",
 };
 
+function scriptSourceLabel(storyId: string): string {
+  if (storyId.startsWith("EXPLORED-")) return "🔍 Explored from live app";
+  if (storyId.startsWith("API-SPEC-")) return "📄 From API spec";
+  return `🎫 ${storyId}`;
+}
+
 interface ScriptsPanelProps {
   scripts: AutomationScript[];
 }
@@ -59,7 +65,7 @@ export function ScriptsPanel({ scripts }: ScriptsPanelProps) {
                 {script.framework}
               </span>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-slate-800 truncate">{script.story_id}</p>
+                <p className="text-sm font-medium text-slate-800 truncate">{scriptSourceLabel(script.story_id)}</p>
                 <p className={`text-xs ${HEALTH_COLORS[script.health_status]}`}>{script.health_status}</p>
               </div>
             </div>
