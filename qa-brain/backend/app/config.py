@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     environment: str = "development"
     frontend_url: str = "http://localhost:5173"
     mock_mode: bool = False
+    qwen_base_url: str = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+    qwen_api_key: str = ""
+    qwen_model: str = "qwen3.7-max"
 
     class Config:
         env_file = ".env"

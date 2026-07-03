@@ -4,6 +4,7 @@ from pathlib import Path
 from urllib.parse import urljoin, urlparse
 import httpx
 import anthropic
+from openai import AsyncOpenAI
 from playwright.async_api import async_playwright
 from app.config import settings
 from app.mcp_clients.jira_client import JiraClient
@@ -16,6 +17,20 @@ def _parse_json(text: str):
     text = _re.sub(r"^```(?:json)?\s*", "", text)
     text = _re.sub(r"\s*```$", "", text)
     return json.loads(text.strip())
+
+
+def _parse_qwen_response(text: str) -> dict:
+    # Qwen 3.7 via DashScope's compatible-mode endpoint is intermittently unreliable
+    # (confirmed by direct testing: the identical request succeeded, then failed, back
+    # to back — live-service flakiness, not a deterministic prompt trigger). Asking for
+    # this plain FRAMEWORK:/CONTENT: line format instead of JSON is a defensive
+    # simplification (smaller, simpler requests give the flaky endpoint less to choke
+    # on) rather than a fix for a specific, confirmed cause.
+    framework_match = _re.search(r"FRAMEWORK:\s*(\S+)", text)
+    framework = framework_match.group(1) if framework_match else "playwright"
+    content_idx = text.find("CONTENT:")
+    content = text[content_idx + len("CONTENT:"):].strip() if content_idx != -1 else text.strip()
+    return {"framework": framework, "content": content.replace("\\n", "\n")}
 
 
 _HOUSE_STYLE_PATH = Path(__file__).resolve().parents[2] / "docs" / "automation-standards.md"
@@ -74,6 +89,29 @@ class AutomationQAAgent:
         self._http = httpx.AsyncClient(timeout=15.0)
         self._model = "claude-sonnet-4-6"
         self._mock = settings.mock_mode
+        # Qwen 3.7 via DashScope compatible-mode is intermittently unreliable —
+        # direct testing showed the identical request succeed, then fail, back to
+        # back, so this is live-service flakiness, not a deterministic prompt-content
+        # trigger. Short timeout + several retries bounds worst-case demo latency
+        # while still giving a good cumulative chance of success.
+        self._qwen_client = AsyncOpenAI(
+            base_url=settings.qwen_base_url, api_key=settings.qwen_api_key, timeout=20.0, max_retries=4
+        )
+        self._qwen_model = settings.qwen_model
+
+    async def _call_qwen(self, prompt_content: str, max_tokens: int = 4000) -> str:
+        # No system-role message and no persona/rules preamble ahead of the task
+        # instructions — keeping the request minimal reduces surface area on an
+        # already-flaky endpoint. Send only the task-specific prompt; it already
+        # includes the required response format.
+        response = await self._qwen_client.chat.completions.create(
+            model=self._qwen_model,
+            max_tokens=max_tokens,
+            messages=[
+                {"role": "user", "content": prompt_content},
+            ],
+        )
+        return response.choices[0].message.content
 
     async def _crawl_site(self, start_url: str, max_depth: int = 2) -> list:
         visited = set()
@@ -132,16 +170,22 @@ class AutomationQAAgent:
         if spec_url:
             spec = await self._openapi.parse_spec(spec_url)
             endpoints = self._openapi.list_endpoints(spec)
+            # Qwen 3.7 via DashScope compatible-mode is intermittently unreliable
+            # (see _call_qwen/_parse_qwen_response) — send only path/method/summary,
+            # dropping description/parameters/responses, to minimize request size as
+            # a defensive measure, not a confirmed fix for a specific cause.
+            brief_endpoints = [
+                {"path": e["path"], "method": e["method"], "summary": e["summary"]}
+                for e in endpoints
+            ]
             prompt_content = f"""Generate a {framework} test script skeleton covering these API endpoints.
 
 Endpoints:
-{json.dumps(endpoints, indent=2)}
+{json.dumps(brief_endpoints, indent=2)}
 
-Return JSON only:
-{{
-  "framework": "{framework}",
-  "content": "the full script source code, using \\n for newlines"
-}}"""
+Respond in exactly this format, nothing else:
+FRAMEWORK: {framework}
+CONTENT: <the full script source code on a single line, using backslash-n for newlines>"""
         else:
             story = await self._jira.get_story(story_id)
             prompt_content = f"""Generate a {framework} test script skeleton for this story.
@@ -151,20 +195,12 @@ Title: {story['title']}
 Description: {story['description']}
 Acceptance Criteria: {story.get('acceptance_criteria') or 'Not provided'}
 
-Return JSON only:
-{{
-  "framework": "{framework}",
-  "content": "the full script source code, using \\n for newlines"
-}}"""
+Respond in exactly this format, nothing else:
+FRAMEWORK: {framework}
+CONTENT: <the full script source code on a single line, using backslash-n for newlines>"""
 
-        response = await self._client.messages.create(
-            model=self._model,
-            max_tokens=4000,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": prompt_content}]
-        )
-
-        return _parse_json(response.content[0].text)
+        text = await self._call_qwen(prompt_content)
+        return _parse_qwen_response(text)
 
     async def explore_and_generate(self, url: str, story_id: str, max_depth: int = 2, framework: str = "playwright") -> dict:
         if self._mock:
@@ -172,26 +208,17 @@ Return JSON only:
 
         pages = await self._crawl_site(url, max_depth=max_depth)
 
-        response = await self._client.messages.create(
-            model=self._model,
-            max_tokens=4000,
-            system=SYSTEM_PROMPT,
-            messages=[{
-                "role": "user",
-                "content": f"""You explored a live web application by crawling it with a headless browser. Below is what was found on each page visited (URL and interactive elements). Pick the single most meaningful happy-path test scenario reachable from this data and generate a {framework} test script for it.
+        prompt_content = f"""You explored a live web application by crawling it with a headless browser. Below is what was found on each page visited (URL and interactive elements). Pick the single most meaningful happy-path test scenario reachable from this data and generate a {framework} test script for it.
 
-Explored pages (JSON):
+Explored pages:
 {json.dumps(pages, indent=2)}
 
-Return JSON only:
-{{
-  "framework": "{framework}",
-  "content": "the full script source code, using \\n for newlines"
-}}"""
-            }]
-        )
+Respond in exactly this format, nothing else:
+FRAMEWORK: {framework}
+CONTENT: <the full script source code on a single line, using backslash-n for newlines>"""
 
-        return _parse_json(response.content[0].text)
+        text = await self._call_qwen(prompt_content)
+        return _parse_qwen_response(text)
 
     async def apply_company_framework(self, script_content: str) -> dict:
         if self._mock:

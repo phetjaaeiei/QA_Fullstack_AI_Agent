@@ -16,16 +16,43 @@ MOCK_SCRIPT = {
     "content": "import { test } from '@playwright/test';\n",
 }
 
+# Qwen-routed calls respond in a FRAMEWORK:/CONTENT: line format, not JSON
+# (see _parse_qwen_response in automation_qa.py for why). chr(92) avoids
+# backslash-escaping ambiguity: it's one literal backslash character, so the
+# CONTENT line contains the two-character sequence backslash+n, not a real newline.
+MOCK_QWEN_RESPONSE_TEXT = (
+    f"FRAMEWORK: {MOCK_SCRIPT['framework']}\n"
+    f"CONTENT: {MOCK_SCRIPT['content'].replace(chr(10), chr(92) + 'n')}"
+)
+
+
+@pytest.mark.asyncio
+async def test_call_qwen_returns_response_text():
+    agent = AutomationQAAgent()
+    with patch.object(agent._qwen_client.chat.completions, "create", new_callable=AsyncMock) as mock_create:
+        mock_create.return_value = MagicMock(
+            choices=[MagicMock(message=MagicMock(content=json.dumps(MOCK_SCRIPT)))]
+        )
+        result = await agent._call_qwen("some prompt")
+
+    assert result == json.dumps(MOCK_SCRIPT)
+    call_kwargs = mock_create.await_args.kwargs
+    assert call_kwargs["model"] == agent._qwen_model
+    # No system-role message and no persona/rules preamble ahead of the task
+    # instructions — this model/endpoint (Qwen 3.7 via DashScope compatible-mode) is
+    # intermittently unreliable (confirmed by direct testing: the identical request
+    # succeeded, then failed, back to back), so requests are kept minimal defensively.
+    assert call_kwargs["messages"] == [
+        {"role": "user", "content": "some prompt"},
+    ]
+
 
 @pytest.mark.asyncio
 async def test_generate_script_from_spec_returns_script():
     with patch("app.agents.automation_qa.settings.mock_mode", False):
         agent = AutomationQAAgent()
         with patch.object(agent._jira, "get_story", new_callable=AsyncMock, return_value=MOCK_STORY), \
-             patch.object(agent._client.messages, "create", new_callable=AsyncMock) as mock_create:
-            mock_create.return_value = MagicMock(
-                content=[MagicMock(text=json.dumps(MOCK_SCRIPT))]
-            )
+             patch.object(agent, "_call_qwen", new_callable=AsyncMock, return_value=MOCK_QWEN_RESPONSE_TEXT):
             result = await agent.generate_script_from_spec("PROJ-200", framework="playwright")
 
     assert result["framework"] == "playwright"
@@ -183,16 +210,50 @@ async def test_generate_script_from_spec_with_spec_url_uses_openapi_client():
         agent = AutomationQAAgent()
         mock_parse_spec = AsyncMock(return_value=MOCK_OPENAPI_SPEC)
         with patch.object(agent._openapi, "parse_spec", mock_parse_spec), \
-             patch.object(agent._client.messages, "create", new_callable=AsyncMock) as mock_create:
-            mock_create.return_value = MagicMock(
-                content=[MagicMock(text=json.dumps(MOCK_SCRIPT))]
-            )
+             patch.object(agent, "_call_qwen", new_callable=AsyncMock, return_value=MOCK_QWEN_RESPONSE_TEXT):
             result = await agent.generate_script_from_spec(
                 "API-SPEC-abc123", framework="playwright", spec_url="https://example.com/openapi.json"
             )
 
     assert result["framework"] == "playwright"
     mock_parse_spec.assert_awaited_once_with("https://example.com/openapi.json")
+
+
+MOCK_OPENAPI_SPEC_VERBOSE = {
+    "paths": {
+        "/users/{id}": {
+            "get": {
+                "summary": "Get user by ID",
+                "description": "Returns a single user record by their unique identifier, including profile metadata.",
+                "parameters": [{"name": "id", "in": "path", "required": True, "schema": {"type": "string"}}],
+                "responses": {"200": {}, "404": {}},
+            }
+        }
+    }
+}
+
+
+@pytest.mark.asyncio
+async def test_generate_script_from_spec_with_spec_url_sends_trimmed_endpoints_to_qwen():
+    # Qwen 3.7 via DashScope compatible-mode is intermittently unreliable (confirmed by
+    # direct testing: the identical request succeeded, then failed, back to back) — only
+    # path/method/summary are sent, dropping description/parameters/responses, to keep
+    # requests minimal as a defensive measure against a flaky endpoint.
+    with patch("app.agents.automation_qa.settings.mock_mode", False):
+        agent = AutomationQAAgent()
+        with patch.object(agent._openapi, "parse_spec", new_callable=AsyncMock, return_value=MOCK_OPENAPI_SPEC_VERBOSE), \
+             patch.object(agent, "_call_qwen", new_callable=AsyncMock, return_value=MOCK_QWEN_RESPONSE_TEXT) as mock_call_qwen:
+            await agent.generate_script_from_spec(
+                "API-SPEC-abc123", framework="playwright", spec_url="https://example.com/openapi.json"
+            )
+
+    sent_prompt = mock_call_qwen.await_args.args[0]
+    assert "description" not in sent_prompt
+    assert "parameters" not in sent_prompt
+    assert "responses" not in sent_prompt
+    assert '"path": "/users/{id}"' in sent_prompt
+    assert '"method": "GET"' in sent_prompt
+    assert '"summary": "Get user by ID"' in sent_prompt
 
 
 @pytest.mark.asyncio
@@ -308,10 +369,7 @@ async def test_explore_and_generate_returns_script():
         agent = AutomationQAAgent()
         mock_crawl = AsyncMock(return_value=MOCK_CRAWL_PAGES)
         with patch.object(agent, "_crawl_site", mock_crawl), \
-             patch.object(agent._client.messages, "create", new_callable=AsyncMock) as mock_create:
-            mock_create.return_value = MagicMock(
-                content=[MagicMock(text=json.dumps(MOCK_SCRIPT))]
-            )
+             patch.object(agent, "_call_qwen", new_callable=AsyncMock, return_value=MOCK_QWEN_RESPONSE_TEXT):
             result = await agent.explore_and_generate("https://example.com", "EXPLORED-abc123")
 
     assert result["framework"] == "playwright"
