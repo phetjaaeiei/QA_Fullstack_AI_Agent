@@ -266,3 +266,39 @@ async def test_crawl_site_follows_same_origin_links_within_depth():
         pages = await agent._crawl_site("https://example.com", max_depth=2)
 
     assert [p["url"] for p in pages] == ["https://example.com", "https://example.com/checkout"]
+
+
+MOCK_CRAWL_PAGES = [
+    {"url": "https://example.com", "elements": [
+        {"tag": "button", "text": "Login", "type": "submit", "name": "login-btn", "href": ""}
+    ]}
+]
+
+
+@pytest.mark.asyncio
+async def test_explore_and_generate_returns_script():
+    with patch("app.agents.automation_qa.settings.mock_mode", False):
+        agent = AutomationQAAgent()
+        mock_crawl = AsyncMock(return_value=MOCK_CRAWL_PAGES)
+        with patch.object(agent, "_crawl_site", mock_crawl), \
+             patch.object(agent._client.messages, "create", new_callable=AsyncMock) as mock_create:
+            mock_create.return_value = MagicMock(
+                content=[MagicMock(text=json.dumps(MOCK_SCRIPT))]
+            )
+            result = await agent.explore_and_generate("https://example.com", "EXPLORED-abc123")
+
+    assert result["framework"] == "playwright"
+    assert "content" in result
+    mock_crawl.assert_awaited_once_with("https://example.com", max_depth=2)
+
+
+@pytest.mark.asyncio
+async def test_explore_and_generate_mock_mode_returns_mock_script_without_crawling():
+    agent = AutomationQAAgent()
+    agent._mock = True
+    with patch.object(agent, "_crawl_site", new_callable=AsyncMock) as mock_crawl:
+        result = await agent.explore_and_generate("https://example.com", "EXPLORED-abc123")
+
+    mock_crawl.assert_not_called()
+    assert result["framework"] == "playwright"
+    assert "[MOCK]" in result["content"]

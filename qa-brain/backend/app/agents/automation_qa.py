@@ -165,6 +165,33 @@ Return JSON only:
 
         return _parse_json(response.content[0].text)
 
+    async def explore_and_generate(self, url: str, story_id: str, max_depth: int = 2, framework: str = "playwright") -> dict:
+        if self._mock:
+            return _mock_script(story_id, framework)
+
+        pages = await self._crawl_site(url, max_depth=max_depth)
+
+        response = await self._client.messages.create(
+            model=self._model,
+            max_tokens=4000,
+            system=SYSTEM_PROMPT,
+            messages=[{
+                "role": "user",
+                "content": f"""You explored a live web application by crawling it with a headless browser. Below is what was found on each page visited (URL and interactive elements). Pick the single most meaningful happy-path test scenario reachable from this data and generate a {framework} test script for it.
+
+Explored pages (JSON):
+{json.dumps(pages, indent=2)}
+
+Return JSON only:
+{{
+  "framework": "{framework}",
+  "content": "the full script source code, using \\n for newlines"
+}}"""
+            }]
+        )
+
+        return _parse_json(response.content[0].text)
+
     async def apply_company_framework(self, script_content: str) -> dict:
         if self._mock:
             return {"content": f"// [MOCK] reformatted to house style\n{script_content}"}
