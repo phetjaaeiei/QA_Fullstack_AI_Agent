@@ -1,4 +1,5 @@
 import re
+import uuid
 from typing import AsyncGenerator
 from app.agents.manual_qa import ManualQAAgent
 from app.agents.automation_qa import AutomationQAAgent
@@ -72,6 +73,11 @@ class QAOrchestrator:
             return {"action": "suggest_self_healing", "broken_locator": broken_locator, "page_url": page_url}
         if any(w in msg for w in ["test data", "boundary data"]):
             return {"action": "generate_test_data", "requirements": message}
+        if any(w in msg for w in ["api spec", "openapi", "swagger"]):
+            url_match = URL_PATTERN.search(message)
+            spec_url = url_match.group(0) if url_match else ""
+            framework = "robot" if "robot" in msg else "playwright"
+            return {"action": "generate_script_from_spec", "spec_url": spec_url, "framework": framework}
         if any(w in msg for w in ["generate script", "automation script", "playwright", "robot framework"]):
             framework = "robot" if "robot" in msg else "playwright"
             return {"action": "generate_script_from_spec", "story_ids": story_ids, "framework": framework}
@@ -123,13 +129,21 @@ class QAOrchestrator:
             yield {"type": "orchestrator_done", "data": {"gaps": gaps}}
 
         elif action == "generate_script_from_spec":
-            story_ids = intent.get("story_ids", [])
             framework = intent.get("framework", "playwright")
-            for story_id in story_ids:
-                yield {"type": "agent_start", "agent": "automation_qa", "message": f"Generating {framework} script for {story_id}..."}
-                script = await self._automation_qa.generate_script_from_spec(story_id, framework=framework)
-                yield {"type": "agent_complete", "agent": "automation_qa", "message": f"Generated {framework} script for {story_id}"}
+            spec_url = intent.get("spec_url")
+            if spec_url:
+                story_id = f"API-SPEC-{uuid.uuid4().hex[:8]}"
+                yield {"type": "agent_start", "agent": "automation_qa", "message": f"Generating {framework} script from API spec..."}
+                script = await self._automation_qa.generate_script_from_spec(story_id, framework=framework, spec_url=spec_url)
+                yield {"type": "agent_complete", "agent": "automation_qa", "message": f"Generated {framework} script from API spec"}
                 yield {"type": "orchestrator_done", "data": {"script": script, "story_id": story_id}}
+            else:
+                story_ids = intent.get("story_ids", [])
+                for story_id in story_ids:
+                    yield {"type": "agent_start", "agent": "automation_qa", "message": f"Generating {framework} script for {story_id}..."}
+                    script = await self._automation_qa.generate_script_from_spec(story_id, framework=framework)
+                    yield {"type": "agent_complete", "agent": "automation_qa", "message": f"Generated {framework} script for {story_id}"}
+                    yield {"type": "orchestrator_done", "data": {"script": script, "story_id": story_id}}
 
         elif action == "apply_company_framework":
             script_content = intent.get("script_content", "")

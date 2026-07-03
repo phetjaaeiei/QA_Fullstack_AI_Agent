@@ -359,3 +359,25 @@ async def test_process_builds_owasp_dashboard():
 
     done_event = next(e for e in events if e["type"] == "orchestrator_done")
     assert done_event["data"]["owasp_dashboard"]["sprint_id"] == "SPRINT-5"
+
+
+@pytest.mark.asyncio
+async def test_process_generates_script_from_api_spec_url():
+    orchestrator = QAOrchestrator()
+    events = []
+
+    with patch.object(orchestrator._automation_qa, "generate_script_from_spec", new_callable=AsyncMock,
+                       return_value={"framework": "playwright", "content": "test('api', async () => {});"}) as mock_generate:
+        async for event in orchestrator.process(
+            message="Generate a playwright script from this openapi spec https://example.com/openapi.json",
+            session_id="test-session",
+            project_id="proj-001",
+        ):
+            events.append(event)
+
+    done_event = next(e for e in events if e["type"] == "orchestrator_done")
+    assert done_event["data"]["script"]["framework"] == "playwright"
+    assert done_event["data"]["story_id"].startswith("API-SPEC-")
+    mock_generate.assert_awaited_once()
+    call_kwargs = mock_generate.await_args.kwargs
+    assert call_kwargs["spec_url"] == "https://example.com/openapi.json"
