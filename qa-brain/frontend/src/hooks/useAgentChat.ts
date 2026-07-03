@@ -148,14 +148,28 @@ export function useAgentChat(sessionId: string, projectId: string) {
       }
     };
 
+    let isCleaningUp = false;
+
     ws.onerror = () => {
+      // React StrictMode double-invokes this effect in development, closing the
+      // first WebSocket while it's still connecting. Closing a CONNECTING socket
+      // fires onerror even though it wasn't a real failure — ignore it when we're
+      // the ones who triggered the close, so users don't see a false "connection
+      // failed" message right before the real connection succeeds.
+      if (isCleaningUp) return;
       setActiveAgent(null);
       appendAssistantMessage("เชื่อมต่อไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
     };
 
-    ws.onclose = () => setActiveAgent(null);
+    ws.onclose = () => {
+      if (isCleaningUp) return;
+      setActiveAgent(null);
+    };
 
-    return () => ws.close();
+    return () => {
+      isCleaningUp = true;
+      ws.close();
+    };
   }, [sessionId]);
 
   const appendAssistantMessage = (content: string, link?: { label: string; url: string }) => {

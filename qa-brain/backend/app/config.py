@@ -16,6 +16,11 @@ class Settings(BaseSettings):
     environment: str = "development"
     frontend_url: str = "http://localhost:5173"
     mock_mode: bool = False
+    # Independent of mock_mode: AutomationQAAgent's two Qwen-routed tools
+    # (generate_script_from_spec, explore_and_generate) check this instead, so Claude
+    # (no real key yet) can stay mocked via mock_mode while Qwen (has a real key) runs
+    # for real, or vice versa — a single global flag can't represent that combination.
+    mock_qwen: bool = False
     qwen_base_url: str = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
     qwen_api_key: str = ""
     qwen_model: str = "qwen3.7-max"

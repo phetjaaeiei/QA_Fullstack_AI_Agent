@@ -92,12 +92,18 @@ class AutomationQAAgent:
         # Qwen 3.7 via DashScope compatible-mode is intermittently unreliable —
         # direct testing showed the identical request succeed, then fail, back to
         # back, so this is live-service flakiness, not a deterministic prompt-content
-        # trigger. Short timeout + several retries bounds worst-case demo latency
-        # while still giving a good cumulative chance of success.
+        # trigger. timeout=20/max_retries=4 (5 attempts) was measured end-to-end at
+        # 110s worst case through the real chat UI — unacceptable for interactive use.
+        # generate_script_from_spec/explore_and_generate now fall back to a labeled
+        # mock result on failure, so it's better to fail fast (~16s worst case) than
+        # keep the user waiting for a slightly higher chance of a real result.
         self._qwen_client = AsyncOpenAI(
-            base_url=settings.qwen_base_url, api_key=settings.qwen_api_key, timeout=20.0, max_retries=4
+            base_url=settings.qwen_base_url, api_key=settings.qwen_api_key, timeout=8.0, max_retries=1
         )
         self._qwen_model = settings.qwen_model
+        # Independent of self._mock (see config.py's mock_qwen) — lets Claude-based
+        # tools on this same agent stay mocked while these two run for real.
+        self._mock_qwen = settings.mock_qwen
 
     async def _call_qwen(self, prompt_content: str, max_tokens: int = 4000) -> str:
         # No system-role message and no persona/rules preamble ahead of the task
@@ -163,7 +169,7 @@ class AutomationQAAgent:
             return ""
 
     async def generate_script_from_spec(self, story_id: str, framework: str = "playwright", spec_url: str = None) -> dict:
-        if self._mock:
+        if self._mock_qwen:
             title = "" if spec_url else await self._fetch_story_title(story_id)
             return _mock_script(story_id, framework, title)
 
@@ -199,11 +205,16 @@ Respond in exactly this format, nothing else:
 FRAMEWORK: {framework}
 CONTENT: <the full script source code on a single line, using backslash-n for newlines>"""
 
-        text = await self._call_qwen(prompt_content)
-        return _parse_qwen_response(text)
+        try:
+            text = await self._call_qwen(prompt_content)
+            return _parse_qwen_response(text)
+        except Exception:
+            # Qwen is intermittently unreliable — a usable, clearly-labeled fallback
+            # beats a raw error breaking the chat mid-conversation.
+            return _mock_script(story_id, framework)
 
     async def explore_and_generate(self, url: str, story_id: str, max_depth: int = 2, framework: str = "playwright") -> dict:
-        if self._mock:
+        if self._mock_qwen:
             return _mock_script(story_id, framework)
 
         pages = await self._crawl_site(url, max_depth=max_depth)
@@ -217,8 +228,13 @@ Respond in exactly this format, nothing else:
 FRAMEWORK: {framework}
 CONTENT: <the full script source code on a single line, using backslash-n for newlines>"""
 
-        text = await self._call_qwen(prompt_content)
-        return _parse_qwen_response(text)
+        try:
+            text = await self._call_qwen(prompt_content)
+            return _parse_qwen_response(text)
+        except Exception:
+            # Qwen is intermittently unreliable — fall back rather than throw away
+            # the crawl that already succeeded and break the chat mid-conversation.
+            return _mock_script(story_id, framework)
 
     async def apply_company_framework(self, script_content: str) -> dict:
         if self._mock:

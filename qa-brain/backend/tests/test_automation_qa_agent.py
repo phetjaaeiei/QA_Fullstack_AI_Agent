@@ -60,6 +60,39 @@ async def test_generate_script_from_spec_returns_script():
 
 
 @pytest.mark.asyncio
+async def test_generate_script_from_spec_ignores_global_mock_mode_uses_mock_qwen_instead():
+    # MOCK_MODE is a global flag other (Claude-based) agents/tools still need — it must
+    # stay True while ANTHROPIC_API_KEY is a placeholder. Qwen has a real key, so the
+    # two Qwen-routed tools check the independent mock_qwen flag instead, letting Claude
+    # stay mocked and Qwen run for real (or vice versa) at the same time.
+    with patch("app.agents.automation_qa.settings.mock_mode", True), \
+         patch("app.agents.automation_qa.settings.mock_qwen", False):
+        agent = AutomationQAAgent()
+        with patch.object(agent._jira, "get_story", new_callable=AsyncMock, return_value=MOCK_STORY), \
+             patch.object(agent, "_call_qwen", new_callable=AsyncMock, return_value=MOCK_QWEN_RESPONSE_TEXT) as mock_call_qwen:
+            result = await agent.generate_script_from_spec("PROJ-200", framework="playwright")
+
+    mock_call_qwen.assert_awaited_once()
+    assert result["framework"] == "playwright"
+
+
+@pytest.mark.asyncio
+async def test_generate_script_from_spec_falls_back_to_mock_when_qwen_fails():
+    # Qwen 3.7 via DashScope compatible-mode is intermittently unreliable — if the
+    # real call raises after its retries are exhausted, the user should still get a
+    # usable (clearly-labeled) response instead of a raw error breaking the chat.
+    with patch("app.agents.automation_qa.settings.mock_mode", False):
+        agent = AutomationQAAgent()
+        with patch.object(agent._jira, "get_story", new_callable=AsyncMock, return_value=MOCK_STORY), \
+             patch.object(agent, "_call_qwen", new_callable=AsyncMock, side_effect=Exception("timed out")):
+            result = await agent.generate_script_from_spec("PROJ-200", framework="playwright")
+
+    assert result["framework"] == "playwright"
+    assert "[MOCK]" in result["content"]
+    assert "PROJ-200" in result["content"]
+
+
+@pytest.mark.asyncio
 async def test_apply_company_framework_returns_reformatted_script():
     with patch("app.agents.automation_qa.settings.mock_mode", False):
         agent = AutomationQAAgent()
@@ -259,7 +292,7 @@ async def test_generate_script_from_spec_with_spec_url_sends_trimmed_endpoints_t
 @pytest.mark.asyncio
 async def test_generate_script_from_spec_mock_mode_with_spec_url_skips_jira():
     agent = AutomationQAAgent()
-    agent._mock = True
+    agent._mock_qwen = True
     with patch.object(agent._jira, "get_story", new_callable=AsyncMock) as mock_get_story:
         result = await agent.generate_script_from_spec(
             "API-SPEC-abc123", framework="playwright", spec_url="https://example.com/openapi.json"
@@ -378,9 +411,23 @@ async def test_explore_and_generate_returns_script():
 
 
 @pytest.mark.asyncio
+async def test_explore_and_generate_falls_back_to_mock_when_qwen_fails():
+    with patch("app.agents.automation_qa.settings.mock_mode", False):
+        agent = AutomationQAAgent()
+        mock_crawl = AsyncMock(return_value=MOCK_CRAWL_PAGES)
+        with patch.object(agent, "_crawl_site", mock_crawl), \
+             patch.object(agent, "_call_qwen", new_callable=AsyncMock, side_effect=Exception("timed out")):
+            result = await agent.explore_and_generate("https://example.com", "EXPLORED-abc123")
+
+    assert result["framework"] == "playwright"
+    assert "[MOCK]" in result["content"]
+    assert "EXPLORED-abc123" in result["content"]
+
+
+@pytest.mark.asyncio
 async def test_explore_and_generate_mock_mode_returns_mock_script_without_crawling():
     agent = AutomationQAAgent()
-    agent._mock = True
+    agent._mock_qwen = True
     with patch.object(agent, "_crawl_site", new_callable=AsyncMock) as mock_crawl:
         result = await agent.explore_and_generate("https://example.com", "EXPLORED-abc123")
 
