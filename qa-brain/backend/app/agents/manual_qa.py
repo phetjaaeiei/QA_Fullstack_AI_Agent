@@ -1,3 +1,4 @@
+import asyncio
 import json
 import re as _re
 import anthropic
@@ -14,45 +15,66 @@ def _parse_json(text: str):
     return json.loads(text.strip())
 
 
-def _mock_test_cases(story_id: str, title: str = "") -> list[dict]:
+# One call per type instead of one call asking for all 5 at once — live testing on
+# 2026-07-05 showed Qwen's response time scales with how much output it has to
+# generate, not prompt size: a 1-item request succeeded in ~17s while a 5-item
+# request timed out at 60s+ every time. Smaller asks succeed more often.
+_TEST_CASE_TYPES = [
+    ("functional", "a happy path scenario derived directly from the acceptance criteria"),
+    ("negative", "an invalid input, wrong credentials, or missing required field"),
+    ("edge", "a boundary value, empty state, or maximum length input"),
+    ("security", "an SQL injection, XSS, unauthorized access, or IDOR attempt"),
+    ("e2e", "the full user journey through this feature from start to finish"),
+]
+
+_MOCK_TEST_CASE_TEMPLATES = {
+    "functional": {
+        "title": "[MOCK] Successful action for {label}",
+        "steps": ["Step 1: Navigate to the feature", "Step 2: Perform the primary action", "Step 3: Verify the result"],
+        "expected_result": "Action completes successfully and the expected state is shown",
+        "priority": "high",
+    },
+    "negative": {
+        "title": "[MOCK] Reject invalid input for {label}",
+        "steps": ["Step 1: Submit the form with invalid data", "Step 2: Observe the response"],
+        "expected_result": "Validation error is shown, no data is persisted",
+        "priority": "high",
+    },
+    "edge": {
+        "title": "[MOCK] Boundary value handling for {label}",
+        "steps": ["Step 1: Submit input at the maximum allowed length", "Step 2: Submit input at the minimum allowed length"],
+        "expected_result": "Both boundary values are accepted without error",
+        "priority": "medium",
+    },
+    "security": {
+        "title": "[MOCK] SQL injection attempt for {label}",
+        "steps": ["Step 1: Enter `' OR 1=1 --` into a text field", "Step 2: Submit the form"],
+        "expected_result": "Input is sanitized, no SQL error is exposed, request is rejected",
+        "priority": "high",
+    },
+    "e2e": {
+        "title": "[MOCK] End-to-end user journey for {label}",
+        "steps": ["Step 1: Log in", "Step 2: Complete the full workflow described in the story", "Step 3: Confirm the final state"],
+        "expected_result": "User completes the journey with the expected outcome at every step",
+        "priority": "medium",
+    },
+}
+
+
+def _mock_test_case_for_type(type_name: str, story_id: str, title: str = "") -> dict:
     label = f"{story_id} ({title})" if title else story_id
-    return [
-        {
-            "title": f"[MOCK] Successful action for {label}",
-            "type": "functional",
-            "steps": ["Step 1: Navigate to the feature", "Step 2: Perform the primary action", "Step 3: Verify the result"],
-            "expected_result": "Action completes successfully and the expected state is shown",
-            "priority": "high",
-        },
-        {
-            "title": f"[MOCK] Reject invalid input for {label}",
-            "type": "negative",
-            "steps": ["Step 1: Submit the form with invalid data", "Step 2: Observe the response"],
-            "expected_result": "Validation error is shown, no data is persisted",
-            "priority": "high",
-        },
-        {
-            "title": f"[MOCK] Boundary value handling for {label}",
-            "type": "edge",
-            "steps": ["Step 1: Submit input at the maximum allowed length", "Step 2: Submit input at the minimum allowed length"],
-            "expected_result": "Both boundary values are accepted without error",
-            "priority": "medium",
-        },
-        {
-            "title": f"[MOCK] SQL injection attempt for {label}",
-            "type": "security",
-            "steps": ["Step 1: Enter `' OR 1=1 --` into a text field", "Step 2: Submit the form"],
-            "expected_result": "Input is sanitized, no SQL error is exposed, request is rejected",
-            "priority": "high",
-        },
-        {
-            "title": f"[MOCK] End-to-end user journey for {label}",
-            "type": "e2e",
-            "steps": ["Step 1: Log in", "Step 2: Complete the full workflow described in the story", "Step 3: Confirm the final state"],
-            "expected_result": "User completes the journey with the expected outcome at every step",
-            "priority": "medium",
-        },
-    ]
+    template = _MOCK_TEST_CASE_TEMPLATES[type_name]
+    return {
+        "title": template["title"].format(label=label),
+        "type": type_name,
+        "steps": template["steps"],
+        "expected_result": template["expected_result"],
+        "priority": template["priority"],
+    }
+
+
+def _mock_test_cases(story_id: str, title: str = "") -> list[dict]:
+    return [_mock_test_case_for_type(type_name, story_id, title) for type_name, _ in _TEST_CASE_TYPES]
 
 
 def _mock_analysis(story_id: str, title: str = "") -> dict:
@@ -78,14 +100,63 @@ def _mock_gaps() -> dict:
     }
 
 
-def _mock_suggested_security_cases() -> list[dict]:
-    return [{
+# One call per attack vector instead of one open-ended "suggest some cases" call —
+# same output-size-scaling problem as _TEST_CASE_TYPES above.
+_SECURITY_SUGGESTION_VECTORS = [
+    ("idor", "an IDOR (insecure direct object reference) — accessing another user's resource by changing an ID"),
+    ("auth_bypass", "an authentication bypass or reuse of an invalidated session"),
+    ("privilege_escalation", "a lower-privilege role performing an action reserved for a higher-privilege role"),
+    ("injection", "an SQL, command, or NoSQL injection through user-supplied input"),
+    ("xss", "a reflected or stored cross-site scripting (XSS) attempt through user-supplied input"),
+]
+
+_MOCK_SECURITY_SUGGESTION_TEMPLATES = {
+    "idor": {
         "title": "[MOCK] IDOR check on another user's resource",
-        "type": "security",
         "steps": ["Step 1: Access another user's resource by ID", "Step 2: Observe the response"],
         "expected_result": "Access is denied with 403",
         "priority": "high",
-    }]
+    },
+    "auth_bypass": {
+        "title": "[MOCK] Session reuse after logout",
+        "steps": ["Step 1: Log in and capture the session token", "Step 2: Log out, then reuse the captured token"],
+        "expected_result": "The reused session is rejected",
+        "priority": "high",
+    },
+    "privilege_escalation": {
+        "title": "[MOCK] Lower-privilege role attempts a restricted action",
+        "steps": ["Step 1: Authenticate as a low-privilege role", "Step 2: Call the endpoint reserved for a higher-privilege role"],
+        "expected_result": "Access is denied with 403",
+        "priority": "high",
+    },
+    "injection": {
+        "title": "[MOCK] Injection attempt through a user-supplied field",
+        "steps": ["Step 1: Submit a payload containing SQL/command injection characters", "Step 2: Observe the response"],
+        "expected_result": "Input is sanitized/rejected, no injection occurs",
+        "priority": "high",
+    },
+    "xss": {
+        "title": "[MOCK] Stored XSS attempt through a user-supplied field",
+        "steps": ["Step 1: Submit a `<script>` payload in a text field", "Step 2: View the page where that field is rendered"],
+        "expected_result": "The payload is escaped/sanitized and does not execute",
+        "priority": "high",
+    },
+}
+
+
+def _mock_security_suggestion_for_vector(vector_key: str) -> dict:
+    template = _MOCK_SECURITY_SUGGESTION_TEMPLATES[vector_key]
+    return {
+        "title": template["title"],
+        "type": "security",
+        "steps": template["steps"],
+        "expected_result": template["expected_result"],
+        "priority": template["priority"],
+    }
+
+
+def _mock_suggested_security_cases() -> list[dict]:
+    return [_mock_security_suggestion_for_vector(key) for key, _ in _SECURITY_SUGGESTION_VECTORS]
 
 
 def _mock_score(sprint_id: str) -> dict:
@@ -123,7 +194,7 @@ class ManualQAAgent:
         # full investigation) — short timeout + one retry bounds worst-case latency;
         # every call site below falls back to the existing mock data on failure.
         self._qwen_client = AsyncOpenAI(
-            base_url=settings.qwen_base_url, api_key=settings.qwen_api_key, timeout=8.0, max_retries=1
+            base_url=settings.qwen_base_url, api_key=settings.qwen_api_key, timeout=60.0, max_retries=1
         )
         self._qwen_model = settings.qwen_model
         self._mock_qwen = settings.mock_qwen
@@ -172,6 +243,31 @@ Return JSON only:
         except Exception:
             return _mock_analysis(story_id, story.get("title", ""))
 
+    async def _generate_one_test_case(self, story: dict, type_name: str, guidance: str) -> dict:
+        prompt_content = f"""Generate exactly 1 {type_name} test case for this story.
+
+Story ID: {story['jira_id']}
+Title: {story['title']}
+Description: {story['description']}
+Acceptance Criteria: {story.get('acceptance_criteria') or 'Not provided'}
+
+Focus: {guidance}
+
+Return a single JSON object only (not an array, no markdown):
+{{
+  "title": "concise test case name",
+  "type": "{type_name}",
+  "steps": ["Step 1: specific action", "Step 2: specific action"],
+  "expected_result": "what should happen if test passes",
+  "priority": "high|medium|low"
+}}"""
+
+        try:
+            text = await self._call_qwen(prompt_content, max_tokens=800)
+            return _parse_json(text)
+        except Exception:
+            return _mock_test_case_for_type(type_name, story["jira_id"], story.get("title", ""))
+
     async def generate_test_cases(self, story_id: str, source: str = "jira") -> list[dict]:
         if self._mock_qwen:
             title = await self._fetch_story_title(story_id)
@@ -179,62 +275,45 @@ Return JSON only:
 
         story = await self._jira.get_story(story_id)
 
-        prompt_content = f"""Generate comprehensive test cases for this story. You MUST include all types.
+        return list(await asyncio.gather(*[
+            self._generate_one_test_case(story, type_name, guidance)
+            for type_name, guidance in _TEST_CASE_TYPES
+        ]))
 
-Story ID: {story['jira_id']}
-Title: {story['title']}
-Description: {story['description']}
-Acceptance Criteria: {story.get('acceptance_criteria') or 'Not provided'}
+    async def _suggest_one_security_case(self, test_cases: list[dict], vector_key: str, vector_description: str) -> dict | None:
+        prompt_content = f"""Given these existing test cases, check whether this attack vector is already covered: {vector_description}.
 
-Return a JSON array. Each test case must have all these fields:
-[
-  {{
-    "title": "concise test case name",
-    "type": "functional|edge|negative|security|e2e",
-    "steps": ["Step 1: specific action", "Step 2: specific action"],
-    "expected_result": "what should happen if test passes",
-    "priority": "high|medium|low"
-  }}
-]
+Existing test cases:
+{json.dumps(test_cases, indent=2)}
 
-REQUIRED coverage — you must include at least one of each type:
-- functional: happy path scenarios from acceptance criteria
-- negative: invalid inputs, wrong credentials, missing required fields
-- edge: boundary values, empty states, max length inputs
-- security: SQL injection, XSS, unauthorized access, IDOR
-- e2e: full user journey from start to finish"""
+If it is already covered, respond with exactly {{"already_covered": true}}.
+Otherwise return a single new JSON object only (not an array, no markdown):
+{{
+  "title": "...",
+  "type": "security",
+  "steps": ["..."],
+  "expected_result": "...",
+  "priority": "high|medium|low"
+}}"""
 
         try:
-            text = await self._call_qwen(prompt_content, max_tokens=6000)
-            return _parse_json(text)
+            text = await self._call_qwen(prompt_content, max_tokens=600)
+            parsed = _parse_json(text)
+            if isinstance(parsed, dict) and parsed.get("already_covered"):
+                return None
+            return parsed
         except Exception:
-            return _mock_test_cases(story_id, story.get("title", ""))
+            return _mock_security_suggestion_for_vector(vector_key)
 
     async def suggest_security_cases(self, test_cases: list[dict]) -> list[dict]:
         if self._mock_qwen:
             return _mock_suggested_security_cases()
 
-        prompt_content = f"""Given these existing test cases, suggest additional security and abuse test cases that are missing.
-
-Existing test cases:
-{json.dumps(test_cases, indent=2)}
-
-Return JSON array of NEW security test cases only (don't repeat existing ones):
-[
-  {{
-    "title": "...",
-    "type": "security",
-    "steps": ["..."],
-    "expected_result": "...",
-    "priority": "high|medium|low"
-  }}
-]"""
-
-        try:
-            text = await self._call_qwen(prompt_content, max_tokens=3000)
-            return _parse_json(text)
-        except Exception:
-            return _mock_suggested_security_cases()
+        results = await asyncio.gather(*[
+            self._suggest_one_security_case(test_cases, vector_key, vector_description)
+            for vector_key, vector_description in _SECURITY_SUGGESTION_VECTORS
+        ])
+        return [r for r in results if r is not None]
 
     async def build_traceability_map(self, story_ids: list[str]) -> dict:
         if self._mock_qwen:

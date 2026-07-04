@@ -71,10 +71,15 @@ MOCK_API_SECURITY_CHECKLIST = {
 
 @pytest.mark.asyncio
 async def test_generate_owasp_test_cases_returns_list():
+    async def fake_call_qwen(prompt_content, max_tokens=500):
+        if MOCK_OWASP_TEST_CASES[0]["owasp_category"] in prompt_content:
+            return json.dumps(MOCK_OWASP_TEST_CASES[0])
+        return json.dumps({"not_applicable": True})
+
     with patch("app.agents.security_qa.settings.mock_qwen", False):
         agent = SecurityQAAgent()
         with patch.object(agent._jira, "get_story", new_callable=AsyncMock, return_value=MOCK_STORY), \
-             patch.object(agent, "_call_qwen", new_callable=AsyncMock, return_value=json.dumps(MOCK_OWASP_TEST_CASES)):
+             patch.object(agent, "_call_qwen", side_effect=fake_call_qwen):
             result = await agent.generate_owasp_test_cases("SCRUM-300")
 
     assert len(result) == 1
@@ -103,6 +108,33 @@ async def test_generate_owasp_test_cases_falls_back_to_mock_when_qwen_fails():
             result = await agent.generate_owasp_test_cases("SCRUM-300")
 
     assert result[0]["title"].startswith("[MOCK]")
+
+
+@pytest.mark.asyncio
+async def test_generate_owasp_test_cases_falls_back_per_category_on_partial_qwen_failure():
+    async def flaky_call_qwen(prompt_content, max_tokens=500):
+        if "A03:2021-Injection" in prompt_content:
+            raise Exception("timed out")
+        if "A01:2021-Broken Access Control" in prompt_content:
+            return json.dumps({
+                "title": "Real IDOR test case",
+                "type": "security",
+                "owasp_category": "A01:2021-Broken Access Control",
+                "steps": ["Step 1"],
+                "expected_result": "denied",
+                "priority": "high",
+            })
+        return json.dumps({"not_applicable": True})
+
+    with patch("app.agents.security_qa.settings.mock_qwen", False):
+        agent = SecurityQAAgent()
+        with patch.object(agent._jira, "get_story", new_callable=AsyncMock, return_value=MOCK_STORY), \
+             patch.object(agent, "_call_qwen", side_effect=flaky_call_qwen):
+            result = await agent.generate_owasp_test_cases("SCRUM-300")
+
+    by_category = {tc["owasp_category"]: tc for tc in result}
+    assert by_category["A01:2021-Broken Access Control"]["title"] == "Real IDOR test case"
+    assert by_category["A03:2021-Injection"]["title"].startswith("[MOCK]")
 
 
 @pytest.mark.asyncio

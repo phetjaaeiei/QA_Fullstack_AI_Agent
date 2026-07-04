@@ -260,6 +260,8 @@ async def test_auto_fix_script_falls_back_to_mock_when_qwen_fails():
 
 MOCK_TEST_DATA = [
     {"label": "Valid boundary", "value": "typical valid input"},
+    {"label": "Minimum boundary", "value": "shortest valid input"},
+    {"label": "Maximum boundary", "value": "longest valid input"},
     {"label": "Invalid input", "value": "malformed input expected to be rejected"},
 ]
 
@@ -275,10 +277,10 @@ MOCK_TRACEABILITY_MAPPING = {
 async def test_generate_test_data_returns_list():
     with patch("app.agents.automation_qa.settings.mock_qwen", False):
         agent = AutomationQAAgent()
-        with patch.object(agent, "_call_qwen", new_callable=AsyncMock, return_value=json.dumps(MOCK_TEST_DATA)):
+        with patch.object(agent, "_call_qwen", new_callable=AsyncMock, side_effect=[json.dumps(item) for item in MOCK_TEST_DATA]):
             result = await agent.generate_test_data("Email field must accept valid emails and reject invalid ones")
 
-    assert len(result) == 2
+    assert len(result) == 4
     assert result[0]["label"] == "Valid boundary"
 
 

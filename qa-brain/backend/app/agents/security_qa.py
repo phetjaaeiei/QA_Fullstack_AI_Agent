@@ -1,3 +1,4 @@
+import asyncio
 import json
 import re as _re
 import anthropic
@@ -56,6 +57,18 @@ def _mock_owasp_test_cases(story_id: str, title: str = "") -> list:
             "priority": "medium",
         },
     ]
+
+
+def _mock_owasp_test_case_for_category(category: str, story_id: str, title: str = "") -> dict:
+    label = f"{story_id} ({title})" if title else story_id
+    return {
+        "title": f"[MOCK] Verify defenses against {category} for {label}",
+        "type": "security",
+        "owasp_category": category,
+        "steps": [f"Step 1: Attempt an action that would trigger a {category} weakness if present", "Step 2: Observe the response"],
+        "expected_result": "The system correctly defends against this category of attack",
+        "priority": "high",
+    }
 
 
 def _mock_owasp_mapping(story_id: str, title: str = "") -> list:
@@ -158,7 +171,7 @@ class SecurityQAAgent:
         # full investigation) — short timeout + one retry bounds worst-case latency;
         # every call site below falls back to the existing mock data on failure.
         self._qwen_client = AsyncOpenAI(
-            base_url=settings.qwen_base_url, api_key=settings.qwen_api_key, timeout=8.0, max_retries=1
+            base_url=settings.qwen_base_url, api_key=settings.qwen_api_key, timeout=60.0, max_retries=1
         )
         self._qwen_model = settings.qwen_model
         self._mock_qwen = settings.mock_qwen
@@ -178,6 +191,33 @@ class SecurityQAAgent:
         except Exception:
             return ""
 
+    async def _generate_one_owasp_test_case(self, story: dict, owasp_category: str) -> dict | None:
+        prompt_content = f"""Does the OWASP category "{owasp_category}" plausibly apply to this story? If it does not apply, respond with exactly {{"not_applicable": true}}.
+
+Story ID: {story['jira_id']}
+Title: {story['title']}
+Description: {story['description']}
+Acceptance Criteria: {story.get('acceptance_criteria') or 'Not provided'}
+
+If it does apply, return a single JSON object only (not an array, no markdown):
+{{
+  "title": "concise test case name",
+  "type": "security",
+  "owasp_category": "{owasp_category}",
+  "steps": ["Step 1: specific action", "Step 2: specific action"],
+  "expected_result": "what should happen if the system correctly defends against this",
+  "priority": "high|medium|low"
+}}"""
+
+        try:
+            text = await self._call_qwen(prompt_content, max_tokens=500)
+            parsed = _parse_json(text)
+            if isinstance(parsed, dict) and parsed.get("not_applicable"):
+                return None
+            return parsed
+        except Exception:
+            return _mock_owasp_test_case_for_category(owasp_category, story["jira_id"], story.get("title", ""))
+
     async def generate_owasp_test_cases(self, story_id: str) -> list:
         if self._mock_qwen:
             title = await self._fetch_story_title(story_id)
@@ -185,33 +225,11 @@ class SecurityQAAgent:
 
         story = await self._jira.get_story(story_id)
 
-        prompt_content = f"""Generate OWASP Top 10 security test cases relevant to this story. Only include categories that plausibly apply to the described feature.
-
-Story ID: {story['jira_id']}
-Title: {story['title']}
-Description: {story['description']}
-Acceptance Criteria: {story.get('acceptance_criteria') or 'Not provided'}
-
-OWASP Top 10 (2021) categories to choose from:
-{json.dumps(OWASP_CATEGORIES, indent=2)}
-
-Return a JSON array. Each test case must have all these fields:
-[
-  {{
-    "title": "concise test case name",
-    "type": "security",
-    "owasp_category": "exact OWASP category string from the list above",
-    "steps": ["Step 1: specific action", "Step 2: specific action"],
-    "expected_result": "what should happen if the system correctly defends against this",
-    "priority": "high|medium|low"
-  }}
-]"""
-
-        try:
-            text = await self._call_qwen(prompt_content, max_tokens=4000)
-            return _parse_json(text)
-        except Exception:
-            return _mock_owasp_test_cases(story_id, story.get("title", ""))
+        results = await asyncio.gather(*[
+            self._generate_one_owasp_test_case(story, category)
+            for category in OWASP_CATEGORIES
+        ])
+        return [r for r in results if r is not None]
 
     async def map_story_to_owasp(self, story_id: str) -> list:
         if self._mock_qwen:

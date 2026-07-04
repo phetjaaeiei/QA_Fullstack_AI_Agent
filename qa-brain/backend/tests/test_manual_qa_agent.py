@@ -51,15 +51,26 @@ async def test_analyze_story_falls_back_to_mock_when_qwen_fails():
     assert "[MOCK]" in result["ambiguities"][0]
 
 
+# One _call_qwen response per type, in the exact order _TEST_CASE_TYPES issues
+# them: functional, negative, edge, security, e2e.
+MOCK_TEST_CASES_PER_TYPE = [
+    json.dumps(MOCK_TEST_CASES[0]),  # functional
+    json.dumps(MOCK_TEST_CASES[1]),  # negative
+    json.dumps(MOCK_TEST_CASES[3]),  # edge
+    json.dumps(MOCK_TEST_CASES[2]),  # security
+    json.dumps(MOCK_TEST_CASES[4]),  # e2e
+]
+
+
 @pytest.mark.asyncio
 async def test_generate_test_cases_covers_all_types():
     with patch("app.agents.manual_qa.settings.mock_qwen", False):
         agent = ManualQAAgent()
         with patch.object(agent._jira, "get_story", new_callable=AsyncMock, return_value=MOCK_STORY), \
-             patch.object(agent, "_call_qwen", new_callable=AsyncMock, return_value=json.dumps(MOCK_TEST_CASES)):
+             patch.object(agent, "_call_qwen", new_callable=AsyncMock, side_effect=MOCK_TEST_CASES_PER_TYPE):
             result = await agent.generate_test_cases("PROJ-123")
 
-    assert len(result) >= 5
+    assert len(result) == 5
     types = {tc["type"] for tc in result}
     assert "functional" in types
     assert "negative" in types
@@ -73,7 +84,7 @@ async def test_generate_test_cases_all_have_required_fields():
     with patch("app.agents.manual_qa.settings.mock_qwen", False):
         agent = ManualQAAgent()
         with patch.object(agent._jira, "get_story", new_callable=AsyncMock, return_value=MOCK_STORY), \
-             patch.object(agent, "_call_qwen", new_callable=AsyncMock, return_value=json.dumps(MOCK_TEST_CASES)):
+             patch.object(agent, "_call_qwen", new_callable=AsyncMock, side_effect=MOCK_TEST_CASES_PER_TYPE):
             result = await agent.generate_test_cases("PROJ-123")
 
     for tc in result:
@@ -94,6 +105,33 @@ async def test_generate_test_cases_falls_back_to_mock_when_qwen_fails():
 
     assert len(result) == 5
     assert all("[MOCK]" in tc["title"] for tc in result)
+
+
+@pytest.mark.asyncio
+async def test_generate_test_cases_falls_back_per_type_on_partial_qwen_failure():
+    # Only the "security" call fails — every other type should still come back real,
+    # and only the security slot should be the labeled mock fallback.
+    async def flaky_call_qwen(prompt_content, max_tokens=800):
+        if "1 security test case" in prompt_content:
+            raise Exception("timed out")
+        for type_name, dumped in zip(["functional", "negative", "edge", "security", "e2e"], MOCK_TEST_CASES_PER_TYPE):
+            if f"1 {type_name} test case" in prompt_content:
+                return dumped
+        raise AssertionError(f"unexpected prompt: {prompt_content}")
+
+    with patch("app.agents.manual_qa.settings.mock_qwen", False):
+        agent = ManualQAAgent()
+        with patch.object(agent._jira, "get_story", new_callable=AsyncMock, return_value=MOCK_STORY), \
+             patch.object(agent, "_call_qwen", side_effect=flaky_call_qwen):
+            result = await agent.generate_test_cases("PROJ-123")
+
+    assert len(result) == 5
+    by_type = {tc["type"]: tc for tc in result}
+    assert "[MOCK]" in by_type["security"]["title"]
+    assert "[MOCK]" not in by_type["functional"]["title"]
+    assert "[MOCK]" not in by_type["negative"]["title"]
+    assert "[MOCK]" not in by_type["edge"]["title"]
+    assert "[MOCK]" not in by_type["e2e"]["title"]
 
 
 MOCK_SPRINT_STORIES = [
@@ -152,7 +190,41 @@ async def test_suggest_security_cases_falls_back_to_mock_when_qwen_fails():
         with patch.object(agent, "_call_qwen", new_callable=AsyncMock, side_effect=Exception("timed out")):
             result = await agent.suggest_security_cases(MOCK_TEST_CASES)
 
-    assert "[MOCK]" in result[0]["title"]
+    assert len(result) == 5
+    assert all("[MOCK]" in tc["title"] for tc in result)
+
+
+@pytest.mark.asyncio
+async def test_suggest_security_cases_mock_mode_returns_mock_fixture():
+    with patch("app.agents.manual_qa.settings.mock_qwen", True):
+        agent = ManualQAAgent()
+        result = await agent.suggest_security_cases(MOCK_TEST_CASES)
+
+    assert len(result) == 5
+    assert all("[MOCK]" in tc["title"] for tc in result)
+    assert all(tc["type"] == "security" for tc in result)
+
+
+@pytest.mark.asyncio
+async def test_suggest_security_cases_skips_vectors_already_covered():
+    async def fake_call_qwen(prompt_content, max_tokens=600):
+        if "IDOR" in prompt_content:
+            return json.dumps({"already_covered": True})
+        return json.dumps({
+            "title": "New XSS case",
+            "type": "security",
+            "steps": ["Step 1"],
+            "expected_result": "blocked",
+            "priority": "high",
+        })
+
+    with patch("app.agents.manual_qa.settings.mock_qwen", False):
+        agent = ManualQAAgent()
+        with patch.object(agent, "_call_qwen", side_effect=fake_call_qwen):
+            result = await agent.suggest_security_cases(MOCK_TEST_CASES)
+
+    assert len(result) == 4
+    assert all(tc["title"] != "" for tc in result)
 
 
 @pytest.mark.asyncio

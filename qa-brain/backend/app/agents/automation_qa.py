@@ -1,3 +1,4 @@
+import asyncio
 import json
 import re as _re
 from pathlib import Path
@@ -110,13 +111,30 @@ def _mock_auto_fix(script_content: str) -> dict:
     }
 
 
+# One call per boundary category instead of one call asking for all of them —
+# same output-size-scaling problem as generate_test_cases/suggest_security_cases
+# in manual_qa.py.
+_TEST_DATA_CATEGORIES = [
+    ("valid_boundary", "typical valid input that should be accepted"),
+    ("min_boundary", "the shortest/smallest input that should still be accepted"),
+    ("max_boundary", "the longest/largest input that should still be accepted"),
+    ("invalid_input", "malformed input that should be rejected"),
+]
+
+_MOCK_TEST_DATA_TEMPLATES = {
+    "valid_boundary": {"label": "[MOCK] Valid boundary", "value": "typical valid input"},
+    "min_boundary": {"label": "[MOCK] Minimum boundary", "value": "shortest allowed input"},
+    "max_boundary": {"label": "[MOCK] Maximum boundary", "value": "longest allowed input"},
+    "invalid_input": {"label": "[MOCK] Invalid input", "value": "malformed input expected to be rejected"},
+}
+
+
+def _mock_test_data_for_category(category_key: str) -> dict:
+    return dict(_MOCK_TEST_DATA_TEMPLATES[category_key])
+
+
 def _mock_test_data() -> list:
-    return [
-        {"label": "[MOCK] Valid boundary", "value": "typical valid input"},
-        {"label": "[MOCK] Minimum boundary", "value": "shortest allowed input"},
-        {"label": "[MOCK] Maximum boundary", "value": "longest allowed input"},
-        {"label": "[MOCK] Invalid input", "value": "malformed input expected to be rejected"},
-    ]
+    return [_mock_test_data_for_category(key) for key, _ in _TEST_DATA_CATEGORIES]
 
 
 def _mock_traceability_result(story_id: str) -> dict:
@@ -137,16 +155,19 @@ class AutomationQAAgent:
         self._http = httpx.AsyncClient(timeout=15.0)
         self._model = "claude-sonnet-4-6"
         self._mock = settings.mock_mode
-        # Qwen 3.7 via DashScope compatible-mode is intermittently unreliable —
-        # direct testing showed the identical request succeed, then fail, back to
-        # back, so this is live-service flakiness, not a deterministic prompt-content
-        # trigger. timeout=20/max_retries=4 (5 attempts) was measured end-to-end at
-        # 110s worst case through the real chat UI — unacceptable for interactive use.
-        # generate_script_from_spec/explore_and_generate now fall back to a labeled
-        # mock result on failure, so it's better to fail fast (~16s worst case) than
-        # keep the user waiting for a slightly higher chance of a real result.
+        # Qwen 3.7 via DashScope compatible-mode is intermittently unreliable — live
+        # testing on 2026-07-05 showed even trivial one-word prompts taking 5-7s and a
+        # single small test-case request timing out at 25s twice in a row (endpoint-side
+        # degradation, not a prompt-size or code issue — confirmed by testing with a
+        # different model tier and a much smaller prompt, both still timed out).
+        # timeout=20/max_retries=4 (5 attempts) was originally measured end-to-end at
+        # 110s worst case through the real chat UI — unacceptable for interactive use —
+        # so it was cut to timeout=8, then raised to 20 and now 60 (max_retries=1) to
+        # give the currently-degraded endpoint more room to respond for real before
+        # falling back. All call sites still fall back to labeled mock data on failure,
+        # so worst case is a long wait (~2 minutes), not a broken chat.
         self._qwen_client = AsyncOpenAI(
-            base_url=settings.qwen_base_url, api_key=settings.qwen_api_key, timeout=8.0, max_retries=1
+            base_url=settings.qwen_base_url, api_key=settings.qwen_api_key, timeout=60.0, max_retries=1
         )
         self._qwen_model = settings.qwen_model
         # Independent of self._mock (see config.py's mock_qwen) — lets Claude-based
@@ -383,25 +404,29 @@ Return JSON only:
         except Exception:
             return _mock_auto_fix(script_content)
 
-    async def generate_test_data(self, requirements: str) -> list:
-        if self._mock_qwen:
-            return _mock_test_data()
-
-        prompt_content = f"""Generate test data sets and boundary variations for this requirement.
+    async def _generate_one_test_data(self, requirements: str, category_key: str, guidance: str) -> dict:
+        prompt_content = f"""Generate exactly 1 test data value for this requirement, focused on: {guidance}.
 
 Requirement:
 {requirements}
 
-Return a JSON array:
-[
-  {{"label": "short description of the data set", "value": "the actual test data value"}}
-]"""
+Return a single JSON object only (not an array, no markdown):
+{{"label": "short description of the data set", "value": "the actual test data value"}}"""
 
         try:
-            text = await self._call_qwen(prompt_content, max_tokens=2000)
+            text = await self._call_qwen(prompt_content, max_tokens=300)
             return _parse_json(text)
         except Exception:
+            return _mock_test_data_for_category(category_key)
+
+    async def generate_test_data(self, requirements: str) -> list:
+        if self._mock_qwen:
             return _mock_test_data()
+
+        return list(await asyncio.gather(*[
+            self._generate_one_test_data(requirements, category_key, guidance)
+            for category_key, guidance in _TEST_DATA_CATEGORIES
+        ]))
 
     async def map_script_traceability(self, story_id: str, script_content: str) -> dict:
         if self._mock_qwen:
