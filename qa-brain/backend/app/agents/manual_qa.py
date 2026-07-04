@@ -1,6 +1,7 @@
 import json
 import re as _re
 import anthropic
+from openai import AsyncOpenAI
 from app.config import settings
 from app.mcp_clients.jira_client import JiraClient
 from app.mcp_clients.openapi_client import OpenAPIClient
@@ -77,6 +78,16 @@ def _mock_gaps() -> dict:
     }
 
 
+def _mock_suggested_security_cases() -> list[dict]:
+    return [{
+        "title": "[MOCK] IDOR check on another user's resource",
+        "type": "security",
+        "steps": ["Step 1: Access another user's resource by ID", "Step 2: Observe the response"],
+        "expected_result": "Access is denied with 403",
+        "priority": "high",
+    }]
+
+
 def _mock_score(sprint_id: str) -> dict:
     return {
         "score": 72,
@@ -108,6 +119,24 @@ class ManualQAAgent:
         self._openapi = OpenAPIClient()
         self._model = "claude-sonnet-4-6"
         self._mock = settings.mock_mode
+        # Qwen is intermittently unreliable (see automation_qa.py's _call_qwen for the
+        # full investigation) — short timeout + one retry bounds worst-case latency;
+        # every call site below falls back to the existing mock data on failure.
+        self._qwen_client = AsyncOpenAI(
+            base_url=settings.qwen_base_url, api_key=settings.qwen_api_key, timeout=8.0, max_retries=1
+        )
+        self._qwen_model = settings.qwen_model
+        self._mock_qwen = settings.mock_qwen
+
+    async def _call_qwen(self, prompt_content: str, max_tokens: int = 4000) -> str:
+        # No system-role message and no persona/rules preamble ahead of the task
+        # instructions (see automation_qa.py's _call_qwen) — send only the task prompt.
+        response = await self._qwen_client.chat.completions.create(
+            model=self._qwen_model,
+            max_tokens=max_tokens,
+            messages=[{"role": "user", "content": prompt_content}],
+        )
+        return response.choices[0].message.content
 
     async def _fetch_story_title(self, story_id: str) -> str:
         try:
@@ -117,19 +146,13 @@ class ManualQAAgent:
             return ""
 
     async def analyze_story(self, story_id: str) -> dict:
-        if self._mock:
+        if self._mock_qwen:
             title = await self._fetch_story_title(story_id)
             return _mock_analysis(story_id, title)
 
         story = await self._jira.get_story(story_id)
 
-        response = await self._client.messages.create(
-            model=self._model,
-            max_tokens=2000,
-            system=SYSTEM_PROMPT,
-            messages=[{
-                "role": "user",
-                "content": f"""Analyze this Jira story for quality risks.
+        prompt_content = f"""Analyze this Jira story for quality risks.
 
 Story ID: {story['jira_id']}
 Title: {story['title']}
@@ -142,25 +165,21 @@ Return JSON only:
   "missing_requirements": ["requirement that is implied but not stated"],
   "risk_areas": ["area most likely to have bugs or security issues"]
 }}"""
-            }]
-        )
 
-        return _parse_json(response.content[0].text)
+        try:
+            text = await self._call_qwen(prompt_content, max_tokens=2000)
+            return _parse_json(text)
+        except Exception:
+            return _mock_analysis(story_id, story.get("title", ""))
 
     async def generate_test_cases(self, story_id: str, source: str = "jira") -> list[dict]:
-        if self._mock:
+        if self._mock_qwen:
             title = await self._fetch_story_title(story_id)
             return _mock_test_cases(story_id, title)
 
         story = await self._jira.get_story(story_id)
 
-        response = await self._client.messages.create(
-            model=self._model,
-            max_tokens=6000,
-            system=SYSTEM_PROMPT,
-            messages=[{
-                "role": "user",
-                "content": f"""Generate comprehensive test cases for this story. You MUST include all types.
+        prompt_content = f"""Generate comprehensive test cases for this story. You MUST include all types.
 
 Story ID: {story['jira_id']}
 Title: {story['title']}
@@ -184,28 +203,18 @@ REQUIRED coverage — you must include at least one of each type:
 - edge: boundary values, empty states, max length inputs
 - security: SQL injection, XSS, unauthorized access, IDOR
 - e2e: full user journey from start to finish"""
-            }]
-        )
 
-        return _parse_json(response.content[0].text)
+        try:
+            text = await self._call_qwen(prompt_content, max_tokens=6000)
+            return _parse_json(text)
+        except Exception:
+            return _mock_test_cases(story_id, story.get("title", ""))
 
     async def suggest_security_cases(self, test_cases: list[dict]) -> list[dict]:
-        if self._mock:
-            return [{
-                "title": "[MOCK] IDOR check on another user's resource",
-                "type": "security",
-                "steps": ["Step 1: Access another user's resource by ID", "Step 2: Observe the response"],
-                "expected_result": "Access is denied with 403",
-                "priority": "high",
-            }]
+        if self._mock_qwen:
+            return _mock_suggested_security_cases()
 
-        response = await self._client.messages.create(
-            model=self._model,
-            max_tokens=3000,
-            system=SYSTEM_PROMPT,
-            messages=[{
-                "role": "user",
-                "content": f"""Given these existing test cases, suggest additional security and abuse test cases that are missing.
+        prompt_content = f"""Given these existing test cases, suggest additional security and abuse test cases that are missing.
 
 Existing test cases:
 {json.dumps(test_cases, indent=2)}
@@ -220,12 +229,15 @@ Return JSON array of NEW security test cases only (don't repeat existing ones):
     "priority": "high|medium|low"
   }}
 ]"""
-            }]
-        )
-        return _parse_json(response.content[0].text)
+
+        try:
+            text = await self._call_qwen(prompt_content, max_tokens=3000)
+            return _parse_json(text)
+        except Exception:
+            return _mock_suggested_security_cases()
 
     async def build_traceability_map(self, story_ids: list[str]) -> dict:
-        if self._mock:
+        if self._mock_qwen:
             titles = {sid: await self._fetch_story_title(sid) for sid in story_ids}
             return _mock_traceability(titles)
 
@@ -238,13 +250,7 @@ Return JSON array of NEW security test cases only (don't repeat existing ones):
             f"- {s['jira_id']}: {s['title']}" for s in stories
         ])
 
-        response = await self._client.messages.create(
-            model=self._model,
-            max_tokens=3000,
-            system=SYSTEM_PROMPT,
-            messages=[{
-                "role": "user",
-                "content": f"""Create a traceability map for these stories.
+        prompt_content = f"""Create a traceability map for these stories.
 For each story, list the test case titles that should cover it.
 
 Stories:
@@ -255,24 +261,22 @@ Return JSON where keys are story IDs:
   "STORY-ID": ["Test case title 1", "Test case title 2"],
   ...
 }}"""
-            }]
-        )
-        return _parse_json(response.content[0].text)
+
+        try:
+            text = await self._call_qwen(prompt_content, max_tokens=3000)
+            return _parse_json(text)
+        except Exception:
+            titles = {s["jira_id"]: s.get("title", "") for s in stories}
+            return _mock_traceability(titles)
 
     async def detect_coverage_gaps(self, sprint_id: str) -> dict:
-        if self._mock:
+        if self._mock_qwen:
             return _mock_gaps()
 
         stories = await self._jira.get_sprint_stories(sprint_id)
         story_summaries = "\n".join([f"- {s['jira_id']}: {s['title']}" for s in stories])
 
-        response = await self._client.messages.create(
-            model=self._model,
-            max_tokens=2000,
-            system=SYSTEM_PROMPT,
-            messages=[{
-                "role": "user",
-                "content": f"""Analyze these sprint stories for test coverage gaps.
+        prompt_content = f"""Analyze these sprint stories for test coverage gaps.
 
 Sprint stories:
 {story_summaries}
@@ -283,12 +287,15 @@ Return JSON:
   "gaps": ["description of missing coverage"],
   "recommendations": ["specific action to close the gap"]
 }}"""
-            }]
-        )
-        return _parse_json(response.content[0].text)
+
+        try:
+            text = await self._call_qwen(prompt_content, max_tokens=2000)
+            return _parse_json(text)
+        except Exception:
+            return _mock_gaps()
 
     async def score_release_readiness(self, sprint_id: str) -> dict:
-        if self._mock:
+        if self._mock_qwen:
             return _mock_score(sprint_id)
 
         stories = await self._jira.get_sprint_stories(sprint_id)
@@ -306,13 +313,7 @@ Return JSON:
         )
         type_counts_json = json.dumps(type_counts)
 
-        response = await self._client.messages.create(
-            model=self._model,
-            max_tokens=2000,
-            system=SYSTEM_PROMPT,
-            messages=[{
-                "role": "user",
-                "content": f"""Evaluate release readiness for this sprint.
+        prompt_content = f"""Evaluate release readiness for this sprint.
 
 Sprint: {sprint_id}
 Stories count: {len(stories)}
@@ -329,6 +330,9 @@ Return JSON:
   "recommendation": "go|no_go|conditional",
   "findings": ["specific finding about coverage quality"]
 }}"""
-            }]
-        )
-        return _parse_json(response.content[0].text)
+
+        try:
+            text = await self._call_qwen(prompt_content, max_tokens=2000)
+            return _parse_json(text)
+        except Exception:
+            return _mock_score(sprint_id)

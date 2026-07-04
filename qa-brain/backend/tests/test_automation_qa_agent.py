@@ -94,15 +94,32 @@ async def test_generate_script_from_spec_falls_back_to_mock_when_qwen_fails():
 
 @pytest.mark.asyncio
 async def test_apply_company_framework_returns_reformatted_script():
-    with patch("app.agents.automation_qa.settings.mock_mode", False):
+    with patch("app.agents.automation_qa.settings.mock_qwen", False):
         agent = AutomationQAAgent()
-        with patch.object(agent._client.messages, "create", new_callable=AsyncMock) as mock_create:
-            mock_create.return_value = MagicMock(
-                content=[MagicMock(text=json.dumps({"content": "reformatted"}))]
-            )
+        with patch.object(agent, "_call_qwen", new_callable=AsyncMock, return_value=json.dumps({"content": "reformatted"})):
             result = await agent.apply_company_framework("raw script")
 
     assert result["content"] == "reformatted"
+
+
+@pytest.mark.asyncio
+async def test_apply_company_framework_mock_mode_returns_mock_fixture():
+    with patch("app.agents.automation_qa.settings.mock_qwen", True):
+        agent = AutomationQAAgent()
+        result = await agent.apply_company_framework("raw script")
+
+    assert "[MOCK]" in result["content"]
+    assert "raw script" in result["content"]
+
+
+@pytest.mark.asyncio
+async def test_apply_company_framework_falls_back_to_mock_when_qwen_fails():
+    with patch("app.agents.automation_qa.settings.mock_qwen", False):
+        agent = AutomationQAAgent()
+        with patch.object(agent, "_call_qwen", new_callable=AsyncMock, side_effect=Exception("timed out")):
+            result = await agent.apply_company_framework("raw script")
+
+    assert "[MOCK]" in result["content"]
 
 
 @pytest.mark.asyncio
@@ -122,24 +139,45 @@ async def test_load_house_style_reads_existing_file(tmp_path):
 
 @pytest.mark.asyncio
 async def test_suggest_self_healing_returns_alternatives():
-    with patch("app.agents.automation_qa.settings.mock_mode", False):
+    with patch("app.agents.automation_qa.settings.mock_qwen", False):
         agent = AutomationQAAgent()
         mock_page_response = MagicMock()
         mock_page_response.text = "<html><body><button id='submit-1'>Submit</button></body></html>"
         mock_page_response.raise_for_status = lambda: None
 
         with patch.object(agent._http, "get", new_callable=AsyncMock, return_value=mock_page_response), \
-             patch.object(agent._client.messages, "create", new_callable=AsyncMock) as mock_create:
-            mock_create.return_value = MagicMock(
-                content=[MagicMock(text=json.dumps({
-                    "alternatives": ["getByTestId('submit-1')"],
-                    "strategy": "prefer test-id",
-                }))]
-            )
+             patch.object(agent, "_call_qwen", new_callable=AsyncMock, return_value=json.dumps({
+                 "alternatives": ["getByTestId('submit-1')"],
+                 "strategy": "prefer test-id",
+             })):
             result = await agent.suggest_self_healing("#submit-1", "https://example.com/checkout")
 
     assert result["alternatives"] == ["getByTestId('submit-1')"]
     assert "strategy" in result
+
+
+@pytest.mark.asyncio
+async def test_suggest_self_healing_mock_mode_returns_mock_fixture():
+    with patch("app.agents.automation_qa.settings.mock_qwen", True):
+        agent = AutomationQAAgent()
+        result = await agent.suggest_self_healing("#submit-1", "https://example.com/checkout")
+
+    assert "[MOCK]" in result["alternatives"][0]
+
+
+@pytest.mark.asyncio
+async def test_suggest_self_healing_falls_back_to_mock_when_qwen_fails():
+    with patch("app.agents.automation_qa.settings.mock_qwen", False):
+        agent = AutomationQAAgent()
+        mock_page_response = MagicMock()
+        mock_page_response.text = "<html></html>"
+        mock_page_response.raise_for_status = lambda: None
+
+        with patch.object(agent._http, "get", new_callable=AsyncMock, return_value=mock_page_response), \
+             patch.object(agent, "_call_qwen", new_callable=AsyncMock, side_effect=Exception("timed out")):
+            result = await agent.suggest_self_healing("#submit-1", "https://example.com/checkout")
+
+    assert "[MOCK]" in result["alternatives"][0]
 
 
 MOCK_CI_RUN = {
@@ -153,37 +191,71 @@ MOCK_CI_RUN = {
 
 @pytest.mark.asyncio
 async def test_classify_failure_returns_root_cause():
-    with patch("app.agents.automation_qa.settings.mock_mode", False):
+    with patch("app.agents.automation_qa.settings.mock_qwen", False):
         agent = AutomationQAAgent()
         with patch.object(agent._github, "get_test_results", new_callable=AsyncMock, return_value=MOCK_CI_RUN), \
-             patch.object(agent._client.messages, "create", new_callable=AsyncMock) as mock_create:
-            mock_create.return_value = MagicMock(
-                content=[MagicMock(text=json.dumps({
-                    "root_cause": "Script",
-                    "explanation": "stale locator",
-                    "failed_step": "click submit",
-                }))]
-            )
+             patch.object(agent, "_call_qwen", new_callable=AsyncMock, return_value=json.dumps({
+                 "root_cause": "Script",
+                 "explanation": "stale locator",
+                 "failed_step": "click submit",
+             })):
             result = await agent.classify_failure("acme/repo", "123456")
 
     assert result["root_cause"] == "Script"
 
 
 @pytest.mark.asyncio
-async def test_auto_fix_script_returns_fixed_content():
-    with patch("app.agents.automation_qa.settings.mock_mode", False):
+async def test_classify_failure_mock_mode_returns_mock_fixture():
+    with patch("app.agents.automation_qa.settings.mock_qwen", True):
         agent = AutomationQAAgent()
-        with patch.object(agent._client.messages, "create", new_callable=AsyncMock) as mock_create:
-            mock_create.return_value = MagicMock(
-                content=[MagicMock(text=json.dumps({
-                    "content": "fixed script",
-                    "explanation": "replaced brittle locator",
-                }))]
-            )
+        result = await agent.classify_failure("acme/repo", "123456")
+
+    assert result["root_cause"] == "Script"
+    assert "[MOCK]" in result["explanation"]
+
+
+@pytest.mark.asyncio
+async def test_classify_failure_falls_back_to_mock_when_qwen_fails():
+    with patch("app.agents.automation_qa.settings.mock_qwen", False):
+        agent = AutomationQAAgent()
+        with patch.object(agent._github, "get_test_results", new_callable=AsyncMock, return_value=MOCK_CI_RUN), \
+             patch.object(agent, "_call_qwen", new_callable=AsyncMock, side_effect=Exception("timed out")):
+            result = await agent.classify_failure("acme/repo", "123456")
+
+    assert "[MOCK]" in result["explanation"]
+
+
+@pytest.mark.asyncio
+async def test_auto_fix_script_returns_fixed_content():
+    with patch("app.agents.automation_qa.settings.mock_qwen", False):
+        agent = AutomationQAAgent()
+        with patch.object(agent, "_call_qwen", new_callable=AsyncMock, return_value=json.dumps({
+            "content": "fixed script",
+            "explanation": "replaced brittle locator",
+        })):
             result = await agent.auto_fix_script("broken script", "TimeoutError: locator not found")
 
     assert result["content"] == "fixed script"
     assert "explanation" in result
+
+
+@pytest.mark.asyncio
+async def test_auto_fix_script_mock_mode_returns_mock_fixture():
+    with patch("app.agents.automation_qa.settings.mock_qwen", True):
+        agent = AutomationQAAgent()
+        result = await agent.auto_fix_script("broken script", "TimeoutError: locator not found")
+
+    assert "[MOCK]" in result["content"]
+
+
+@pytest.mark.asyncio
+async def test_auto_fix_script_falls_back_to_mock_when_qwen_fails():
+    with patch("app.agents.automation_qa.settings.mock_qwen", False):
+        agent = AutomationQAAgent()
+        with patch.object(agent, "_call_qwen", new_callable=AsyncMock, side_effect=Exception("timed out")):
+            result = await agent.auto_fix_script("broken script", "TimeoutError: locator not found")
+
+    assert "[MOCK]" in result["content"]
 
 
 MOCK_TEST_DATA = [
@@ -201,12 +273,9 @@ MOCK_TRACEABILITY_MAPPING = {
 
 @pytest.mark.asyncio
 async def test_generate_test_data_returns_list():
-    with patch("app.agents.automation_qa.settings.mock_mode", False):
+    with patch("app.agents.automation_qa.settings.mock_qwen", False):
         agent = AutomationQAAgent()
-        with patch.object(agent._client.messages, "create", new_callable=AsyncMock) as mock_create:
-            mock_create.return_value = MagicMock(
-                content=[MagicMock(text=json.dumps(MOCK_TEST_DATA))]
-            )
+        with patch.object(agent, "_call_qwen", new_callable=AsyncMock, return_value=json.dumps(MOCK_TEST_DATA)):
             result = await agent.generate_test_data("Email field must accept valid emails and reject invalid ones")
 
     assert len(result) == 2
@@ -214,18 +283,55 @@ async def test_generate_test_data_returns_list():
 
 
 @pytest.mark.asyncio
+async def test_generate_test_data_mock_mode_returns_mock_fixture():
+    with patch("app.agents.automation_qa.settings.mock_qwen", True):
+        agent = AutomationQAAgent()
+        result = await agent.generate_test_data("Email field must accept valid emails and reject invalid ones")
+
+    assert "[MOCK]" in result[0]["label"]
+
+
+@pytest.mark.asyncio
+async def test_generate_test_data_falls_back_to_mock_when_qwen_fails():
+    with patch("app.agents.automation_qa.settings.mock_qwen", False):
+        agent = AutomationQAAgent()
+        with patch.object(agent, "_call_qwen", new_callable=AsyncMock, side_effect=Exception("timed out")):
+            result = await agent.generate_test_data("Email field must accept valid emails and reject invalid ones")
+
+    assert "[MOCK]" in result[0]["label"]
+
+
+@pytest.mark.asyncio
 async def test_map_script_traceability_returns_mapping():
-    with patch("app.agents.automation_qa.settings.mock_mode", False):
+    with patch("app.agents.automation_qa.settings.mock_qwen", False):
         agent = AutomationQAAgent()
         with patch.object(agent._jira, "get_story", new_callable=AsyncMock, return_value=MOCK_STORY), \
-             patch.object(agent._client.messages, "create", new_callable=AsyncMock) as mock_create:
-            mock_create.return_value = MagicMock(
-                content=[MagicMock(text=json.dumps(MOCK_TRACEABILITY_MAPPING))]
-            )
+             patch.object(agent, "_call_qwen", new_callable=AsyncMock, return_value=json.dumps(MOCK_TRACEABILITY_MAPPING)):
             result = await agent.map_script_traceability("PROJ-200", "test('reset password', async () => {});")
 
     assert result["story_id"] == "PROJ-200"
     assert result["covers_acceptance_criteria"] is True
+
+
+@pytest.mark.asyncio
+async def test_map_script_traceability_mock_mode_returns_mock_fixture():
+    with patch("app.agents.automation_qa.settings.mock_qwen", True):
+        agent = AutomationQAAgent()
+        result = await agent.map_script_traceability("PROJ-200", "test('reset password', async () => {});")
+
+    assert result["story_id"] == "PROJ-200"
+    assert "[MOCK]" in result["notes"]
+
+
+@pytest.mark.asyncio
+async def test_map_script_traceability_falls_back_to_mock_when_qwen_fails():
+    with patch("app.agents.automation_qa.settings.mock_qwen", False):
+        agent = AutomationQAAgent()
+        with patch.object(agent._jira, "get_story", new_callable=AsyncMock, return_value=MOCK_STORY), \
+             patch.object(agent, "_call_qwen", new_callable=AsyncMock, side_effect=Exception("timed out")):
+            result = await agent.map_script_traceability("PROJ-200", "test('reset password', async () => {});")
+
+    assert "[MOCK]" in result["notes"]
 
 
 MOCK_OPENAPI_SPEC = {

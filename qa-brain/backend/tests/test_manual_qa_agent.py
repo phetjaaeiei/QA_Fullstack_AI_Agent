@@ -1,6 +1,6 @@
 import pytest
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 from app.agents.manual_qa import ManualQAAgent
 
 MOCK_STORY = {
@@ -28,13 +28,11 @@ MOCK_TEST_CASES = [
 
 @pytest.mark.asyncio
 async def test_analyze_story_returns_structured_analysis():
-    agent = ManualQAAgent()
-    with patch.object(agent._jira, "get_story", new_callable=AsyncMock, return_value=MOCK_STORY), \
-         patch.object(agent._client.messages, "create", new_callable=AsyncMock) as mock_create:
-        mock_create.return_value = MagicMock(
-            content=[MagicMock(text=json.dumps(MOCK_ANALYSIS))]
-        )
-        result = await agent.analyze_story("PROJ-123")
+    with patch("app.agents.manual_qa.settings.mock_qwen", False):
+        agent = ManualQAAgent()
+        with patch.object(agent._jira, "get_story", new_callable=AsyncMock, return_value=MOCK_STORY), \
+             patch.object(agent, "_call_qwen", new_callable=AsyncMock, return_value=json.dumps(MOCK_ANALYSIS)):
+            result = await agent.analyze_story("PROJ-123")
 
     assert "ambiguities" in result
     assert "missing_requirements" in result
@@ -43,14 +41,23 @@ async def test_analyze_story_returns_structured_analysis():
 
 
 @pytest.mark.asyncio
+async def test_analyze_story_falls_back_to_mock_when_qwen_fails():
+    with patch("app.agents.manual_qa.settings.mock_qwen", False):
+        agent = ManualQAAgent()
+        with patch.object(agent._jira, "get_story", new_callable=AsyncMock, return_value=MOCK_STORY), \
+             patch.object(agent, "_call_qwen", new_callable=AsyncMock, side_effect=Exception("timed out")):
+            result = await agent.analyze_story("PROJ-123")
+
+    assert "[MOCK]" in result["ambiguities"][0]
+
+
+@pytest.mark.asyncio
 async def test_generate_test_cases_covers_all_types():
-    agent = ManualQAAgent()
-    with patch.object(agent._jira, "get_story", new_callable=AsyncMock, return_value=MOCK_STORY), \
-         patch.object(agent._client.messages, "create", new_callable=AsyncMock) as mock_create:
-        mock_create.return_value = MagicMock(
-            content=[MagicMock(text=json.dumps(MOCK_TEST_CASES))]
-        )
-        result = await agent.generate_test_cases("PROJ-123")
+    with patch("app.agents.manual_qa.settings.mock_qwen", False):
+        agent = ManualQAAgent()
+        with patch.object(agent._jira, "get_story", new_callable=AsyncMock, return_value=MOCK_STORY), \
+             patch.object(agent, "_call_qwen", new_callable=AsyncMock, return_value=json.dumps(MOCK_TEST_CASES)):
+            result = await agent.generate_test_cases("PROJ-123")
 
     assert len(result) >= 5
     types = {tc["type"] for tc in result}
@@ -63,13 +70,11 @@ async def test_generate_test_cases_covers_all_types():
 
 @pytest.mark.asyncio
 async def test_generate_test_cases_all_have_required_fields():
-    agent = ManualQAAgent()
-    with patch.object(agent._jira, "get_story", new_callable=AsyncMock, return_value=MOCK_STORY), \
-         patch.object(agent._client.messages, "create", new_callable=AsyncMock) as mock_create:
-        mock_create.return_value = MagicMock(
-            content=[MagicMock(text=json.dumps(MOCK_TEST_CASES))]
-        )
-        result = await agent.generate_test_cases("PROJ-123")
+    with patch("app.agents.manual_qa.settings.mock_qwen", False):
+        agent = ManualQAAgent()
+        with patch.object(agent._jira, "get_story", new_callable=AsyncMock, return_value=MOCK_STORY), \
+             patch.object(agent, "_call_qwen", new_callable=AsyncMock, return_value=json.dumps(MOCK_TEST_CASES)):
+            result = await agent.generate_test_cases("PROJ-123")
 
     for tc in result:
         assert "title" in tc
@@ -77,6 +82,18 @@ async def test_generate_test_cases_all_have_required_fields():
         assert "steps" in tc
         assert "expected_result" in tc
         assert "priority" in tc
+
+
+@pytest.mark.asyncio
+async def test_generate_test_cases_falls_back_to_mock_when_qwen_fails():
+    with patch("app.agents.manual_qa.settings.mock_qwen", False):
+        agent = ManualQAAgent()
+        with patch.object(agent._jira, "get_story", new_callable=AsyncMock, return_value=MOCK_STORY), \
+             patch.object(agent, "_call_qwen", new_callable=AsyncMock, side_effect=Exception("timed out")):
+            result = await agent.generate_test_cases("PROJ-123")
+
+    assert len(result) == 5
+    assert all("[MOCK]" in tc["title"] for tc in result)
 
 
 MOCK_SPRINT_STORIES = [
@@ -102,14 +119,12 @@ MOCK_SCORE = {
 
 @pytest.mark.asyncio
 async def test_build_traceability_map_keys_match_story_ids():
-    agent = ManualQAAgent()
-    with patch.object(agent._jira, "get_story", new_callable=AsyncMock, side_effect=[
-        MOCK_SPRINT_STORIES[0], MOCK_SPRINT_STORIES[1]
-    ]), patch.object(agent._client.messages, "create", new_callable=AsyncMock) as mock_create:
-        mock_create.return_value = MagicMock(
-            content=[MagicMock(text=json.dumps(MOCK_TRACEABILITY))]
-        )
-        result = await agent.build_traceability_map(["PROJ-121", "PROJ-122"])
+    with patch("app.agents.manual_qa.settings.mock_qwen", False):
+        agent = ManualQAAgent()
+        with patch.object(agent._jira, "get_story", new_callable=AsyncMock, side_effect=[
+            MOCK_SPRINT_STORIES[0], MOCK_SPRINT_STORIES[1]
+        ]), patch.object(agent, "_call_qwen", new_callable=AsyncMock, return_value=json.dumps(MOCK_TRACEABILITY)):
+            result = await agent.build_traceability_map(["PROJ-121", "PROJ-122"])
 
     assert "PROJ-121" in result
     assert "PROJ-122" in result
@@ -118,15 +133,34 @@ async def test_build_traceability_map_keys_match_story_ids():
 
 @pytest.mark.asyncio
 async def test_score_release_readiness_returns_score_and_recommendation():
-    agent = ManualQAAgent()
-    with patch.object(agent._jira, "get_sprint_stories", new_callable=AsyncMock, return_value=MOCK_SPRINT_STORIES), \
-         patch.object(agent, "generate_test_cases", new_callable=AsyncMock, return_value=MOCK_TEST_CASES), \
-         patch.object(agent._client.messages, "create", new_callable=AsyncMock) as mock_create:
-        mock_create.return_value = MagicMock(
-            content=[MagicMock(text=json.dumps(MOCK_SCORE))]
-        )
-        result = await agent.score_release_readiness("SPRINT-42")
+    with patch("app.agents.manual_qa.settings.mock_qwen", False):
+        agent = ManualQAAgent()
+        with patch.object(agent._jira, "get_sprint_stories", new_callable=AsyncMock, return_value=MOCK_SPRINT_STORIES), \
+             patch.object(agent, "generate_test_cases", new_callable=AsyncMock, return_value=MOCK_TEST_CASES), \
+             patch.object(agent, "_call_qwen", new_callable=AsyncMock, return_value=json.dumps(MOCK_SCORE)):
+            result = await agent.score_release_readiness("SPRINT-42")
 
     assert 0 <= result["score"] <= 100
     assert result["recommendation"] in ("go", "no_go", "conditional")
     assert isinstance(result["findings"], list)
+
+
+@pytest.mark.asyncio
+async def test_suggest_security_cases_falls_back_to_mock_when_qwen_fails():
+    with patch("app.agents.manual_qa.settings.mock_qwen", False):
+        agent = ManualQAAgent()
+        with patch.object(agent, "_call_qwen", new_callable=AsyncMock, side_effect=Exception("timed out")):
+            result = await agent.suggest_security_cases(MOCK_TEST_CASES)
+
+    assert "[MOCK]" in result[0]["title"]
+
+
+@pytest.mark.asyncio
+async def test_detect_coverage_gaps_falls_back_to_mock_when_qwen_fails():
+    with patch("app.agents.manual_qa.settings.mock_qwen", False):
+        agent = ManualQAAgent()
+        with patch.object(agent._jira, "get_sprint_stories", new_callable=AsyncMock, return_value=MOCK_SPRINT_STORIES), \
+             patch.object(agent, "_call_qwen", new_callable=AsyncMock, side_effect=Exception("timed out")):
+            result = await agent.detect_coverage_gaps("SPRINT-42")
+
+    assert "[MOCK]" in result["gaps"][0]
